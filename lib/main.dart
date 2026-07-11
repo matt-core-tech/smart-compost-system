@@ -38,8 +38,8 @@ class _CompostIQAppState extends State<CompostIQApp> {
         ),
       ),
       home: GetStartedScreen(
-        isEnglish: _isEnglish,
-        onLanguageChange: (val) => setState(() => _isEnglish = val)
+          isEnglish: _isEnglish,
+          onLanguageChange: (val) => setState(() => _isEnglish = val)
       ),
     );
   }
@@ -103,6 +103,8 @@ class AppStrings {
       'opt3': {'en': 'Help Center Support', 'bem': 'Ukwafwa na Masambililo'},
       'opt4': {'en': 'About Smart Compost Monitor', 'bem': 'Ifya Bashimika Pali App'},
       'logout': {'en': 'Log Out', 'bem': 'Fuminimo'},
+      'monitoringTitle': {'en': 'Telemetry Monitoring', 'bem': 'Ukulolekesha imbo'},
+      'monitoringSub': {'en': 'Real-time telemetry streams from your biome nodes.', 'bem': 'Ifyo imbo shilelanda pali nomba line'},
     };
     return localizedValues[key]?[isEnglish ? 'en' : 'bem'] ?? key;
   }
@@ -131,13 +133,13 @@ class GetStartedScreen extends StatelessWidget {
             children: [
               const Spacer(),
               Center(
-                child: Container(
-                  height: 120,
-                  width: 120,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.primary,
-                    borderRadius: BorderRadius.circular(36),
-                    boxShadow: [BoxShadow(color: theme.colorScheme.primary.withOpacity(0.2), blurRadius: 20, offset: const Offset(0, 10))]
+                      color: theme.colorScheme.primary,
+                      borderRadius: BorderRadius.circular(36),
+                      boxShadow: [BoxShadow(color: theme.colorScheme.primary.withOpacity(0.2), blurRadius: 20, offset: const Offset(0, 10))]
                   ),
                   child: const Icon(Icons.eco_rounded, size: 70, color: Color(0xFFF9F6F0)),
                 ),
@@ -161,8 +163,8 @@ class GetStartedScreen extends StatelessWidget {
               ElevatedButton(
                 onPressed: () {
                   Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => WalkthroughTutorialScreen(isEnglish: isEnglish, onLanguageChange: onLanguageChange))
+                      context,
+                      MaterialPageRoute(builder: (context) => WalkthroughTutorialScreen(isEnglish: isEnglish, onLanguageChange: onLanguageChange))
                   );
                 },
                 style: ElevatedButton.styleFrom(
@@ -199,7 +201,7 @@ class GetStartedScreen extends StatelessWidget {
 }
 
 // ==========================================
-// NEW WALKTHROUGH TUTORIAL SYSTEM
+// WALKTHROUGH TUTORIAL SYSTEM
 // ==========================================
 class WalkthroughTutorialScreen extends StatefulWidget {
   final bool isEnglish;
@@ -246,7 +248,7 @@ class _WalkthroughTutorialScreenState extends State<WalkthroughTutorialScreen> {
                 alignment: Alignment.topRight,
                 child: TextButton(
                   onPressed: () {
-                    Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => LoginScreen(isEnglish: widget.isEnglish, onLanguageChange: widget.onLanguageChange)));
+                    Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => SignUpScreen(isEnglish: widget.isEnglish, onLanguageChange: widget.onLanguageChange)));
                   },
                   child: const Text('Skip', style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
                 ),
@@ -274,7 +276,7 @@ class _WalkthroughTutorialScreenState extends State<WalkthroughTutorialScreen> {
                   if (_currentStep < _steps.length - 1) {
                     setState(() => _currentStep++);
                   } else {
-                    Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => LoginScreen(isEnglish: widget.isEnglish, onLanguageChange: widget.onLanguageChange)));
+                    Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => SignUpScreen(isEnglish: widget.isEnglish, onLanguageChange: widget.onLanguageChange)));
                   }
                 },
                 style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.primary, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
@@ -289,21 +291,20 @@ class _WalkthroughTutorialScreenState extends State<WalkthroughTutorialScreen> {
 }
 
 // ==========================================
-// SCREEN 1: LOGIN & AUTH INTEGRATION
+// SCREEN 1: SIGNUP SCREEN (FIRST PRIORITY PROMPT)
 // ==========================================
-class LoginScreen extends StatefulWidget {
+class SignUpScreen extends StatefulWidget {
   final bool isEnglish;
   final ValueChanged<bool> onLanguageChange;
 
-  const LoginScreen({super.key, required this.isEnglish, required this.onLanguageChange});
+  const SignUpScreen({super.key, required this.isEnglish, required this.onLanguageChange});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  State<SignUpScreen> createState() => _SignUpScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _SignUpScreenState extends State<SignUpScreen> {
   bool _obscurePassword = true;
-  bool _isSigningUp = false;
   final TextEditingController _nameController = TextEditingController(text: "Ayanokoji");
 
   void _executeAuthentication(String finalName) {
@@ -340,8 +341,12 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Container(
                         height: 75,
                         width: 75,
+                        alignment: Alignment.center,
                         decoration: BoxDecoration(color: theme.colorScheme.primary, borderRadius: BorderRadius.circular(22)),
-                        child: const Icon(Icons.eco_rounded, size: 40, color: Color(0xFFF9F6F0)),
+                        child: const AspectRatio(
+                          aspectRatio: 1.0,
+                          child: Icon(Icons.eco_rounded, size: 40, color: Color(0xFFF9F6F0)),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -352,31 +357,28 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 32),
                     Text(
-                      AppStrings.get(_isSigningUp ? 'signUpTitle' : 'welcome', lang),
+                      AppStrings.get('signUpTitle', lang),
                       style: theme.textTheme.displayLarge,
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      AppStrings.get(_isSigningUp ? 'signUpSub' : 'loginSub', lang),
+                      AppStrings.get('signUpSub', lang),
                       style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.6), fontSize: 15, height: 1.4),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 32),
-
-                    if (_isSigningUp) ...[
-                      TextField(
-                        controller: _nameController,
-                        decoration: InputDecoration(
-                          labelText: AppStrings.get('nameField', lang),
-                          filled: true,
-                          fillColor: theme.colorScheme.surface,
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                          prefixIcon: const Icon(Icons.person_outline_rounded),
-                        ),
+                    TextField(
+                      controller: _nameController,
+                      decoration: InputDecoration(
+                        labelText: AppStrings.get('nameField', lang),
+                        filled: true,
+                        fillColor: theme.colorScheme.surface,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                        prefixIcon: const Icon(Icons.person_outline_rounded),
                       ),
-                      const SizedBox(height: 16),
-                    ],
+                    ),
+                    const SizedBox(height: 16),
                     TextField(
                       decoration: InputDecoration(
                         labelText: AppStrings.get('email', lang),
@@ -405,10 +407,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     ElevatedButton(
                       onPressed: () => _executeAuthentication(_nameController.text),
                       style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.primary, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 0),
-                      child: Text(AppStrings.get(_isSigningUp ? 'signUpBtn' : 'loginBtn', lang), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      child: Text(AppStrings.get('signUpBtn', lang), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                     ),
                     const SizedBox(height: 20),
-
                     OutlinedButton(
                       onPressed: () => _executeAuthentication("Google Native User"),
                       style: OutlinedButton.styleFrom(
@@ -428,14 +429,157 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 16),
                     TextButton(
-                      onPressed: () => setState(() => _isSigningUp = !_isSigningUp),
+                      onPressed: () {
+                        Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => LoginScreen(isEnglish: widget.isEnglish, onLanguageChange: widget.onLanguageChange)));
+                      },
                       child: Text(
-                        AppStrings.get(_isSigningUp ? 'toggleToLogin' : 'toggleToSignUp', lang),
+                        AppStrings.get('toggleToLogin', lang),
                         style: TextStyle(color: theme.colorScheme.secondary, fontWeight: FontWeight.bold, fontSize: 15),
                       ),
                     ),
                     const Spacer(),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text("🌿 EN", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+                          Switch.adaptive(
+                            value: !widget.isEnglish,
+                            activeColor: theme.colorScheme.secondary,
+                            onChanged: (val) => widget.onLanguageChange(!val),
+                          ),
+                          const Text("BEM", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
+// ==========================================
+// SCREEN 1B: LOGIN SCREEN (SECONDARY DUAL AUTH GAP)
+// ==========================================
+class LoginScreen extends StatefulWidget {
+  final bool isEnglish;
+  final ValueChanged<bool> onLanguageChange;
+
+  const LoginScreen({super.key, required this.isEnglish, required this.onLanguageChange});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  bool _obscurePassword = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final lang = widget.isEnglish;
+
+    return Scaffold(
+      body: SafeArea(
+        child: CustomScrollView(
+          slivers: [
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 10.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 20),
+                    Center(
+                      child: Container(
+                        height: 75,
+                        width: 75,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(color: theme.colorScheme.primary, borderRadius: BorderRadius.circular(22)),
+                        child: const AspectRatio(
+                          aspectRatio: 1.0,
+                          child: Icon(Icons.eco_rounded, size: 40, color: Color(0xFFF9F6F0)),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      AppStrings.get('appName', lang),
+                      style: theme.textTheme.displayLarge?.copyWith(fontSize: 20, color: theme.colorScheme.primary.withOpacity(0.8)),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 32),
+                    Text(
+                      AppStrings.get('welcome', lang),
+                      style: theme.textTheme.displayLarge,
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      AppStrings.get('loginSub', lang),
+                      style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.6), fontSize: 15, height: 1.4),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 32),
+                    TextField(
+                      decoration: InputDecoration(
+                        labelText: AppStrings.get('email', lang),
+                        filled: true,
+                        fillColor: theme.colorScheme.surface,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                        prefixIcon: const Icon(Icons.mail_outline_rounded),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      obscureText: _obscurePassword,
+                      decoration: InputDecoration(
+                        labelText: AppStrings.get('password', lang),
+                        filled: true,
+                        fillColor: theme.colorScheme.surface,
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
+                        prefixIcon: const Icon(Icons.lock_outline_rounded),
+                        suffixIcon: IconButton(
+                          icon: Icon(_obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.pushReplacement(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => MainNavigationController(
+                              userName: "Ayanokoji",
+                              isEnglish: widget.isEnglish,
+                              onLanguageChange: widget.onLanguageChange,
+                            ),
+                          ),
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.primary, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)), elevation: 0),
+                      child: Text(AppStrings.get('loginBtn', lang), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    ),
+                    const SizedBox(height: 20),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => SignUpScreen(isEnglish: widget.isEnglish, onLanguageChange: widget.onLanguageChange)));
+                      },
+                      child: Text(
+                        AppStrings.get('toggleToSignUp', lang),
+                        style: TextStyle(color: theme.colorScheme.secondary, fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                    ),
+                    const Spacer(),
                     Align(
                       alignment: Alignment.centerRight,
                       child: Row(
@@ -517,12 +661,38 @@ class _MainNavigationControllerState extends State<MainNavigationController> {
           });
         },
       ),
+      MonitoringScreen(isEnglish: widget.isEnglish, activePiles: activeCompostPiles),
       HistoryScreen(isEnglish: widget.isEnglish, historyPiles: readyCompostHistory),
       AlertsScreen(isEnglish: widget.isEnglish),
-      SettingsScreen(userName: widget.userName, isEnglish: widget.isEnglish, onLanguageChange: widget.onLanguageChange),
     ];
 
     return Scaffold(
+      appBar: AppBar(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        elevation: 0,
+        automaticallyImplyLeading: false,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.settings_rounded, color: theme.colorScheme.primary),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => SettingsScreen(
+                    userName: widget.userName,
+                    isEnglish: widget.isEnglish,
+                    onLanguageChange: (val) {
+                      widget.onLanguageChange(val);
+                      setState(() {});
+                    },
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(width: 12),
+        ],
+      ),
       body: viewports[_activeTab],
       floatingActionButton: FloatingActionButton(
         onPressed: () => _showEnhancedAddCompostModal(context),
@@ -542,10 +712,10 @@ class _MainNavigationControllerState extends State<MainNavigationController> {
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _buildLabeledTabItem(index: 0, label: widget.isEnglish ? 'Home' : 'Pano', icon: Icons.home_rounded, theme: theme),
-            _buildLabeledTabItem(index: 1, label: widget.isEnglish ? 'History' : 'Kale', icon: Icons.history_rounded, theme: theme),
+            _buildLabeledTabItem(index: 1, label: widget.isEnglish ? 'Monitor' : 'Moneni', icon: Icons.sensors_rounded, theme: theme),
             const SizedBox(width: 40),
-            _buildLabeledTabItem(index: 2, label: widget.isEnglish ? 'Alerts' : 'Ifisoso', icon: Icons.notifications_rounded, theme: theme),
-            _buildLabeledTabItem(index: 3, label: widget.isEnglish ? 'Settings' : 'Imisango', icon: Icons.settings_rounded, theme: theme),
+            _buildLabeledTabItem(index: 2, label: widget.isEnglish ? 'History' : 'Kale', icon: Icons.history_rounded, theme: theme),
+            _buildLabeledTabItem(index: 3, label: widget.isEnglish ? 'Alerts' : 'Ifisoso', icon: Icons.notifications_rounded, theme: theme),
           ],
         ),
       ),
@@ -587,64 +757,64 @@ class _MainNavigationControllerState extends State<MainNavigationController> {
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
       builder: (context) {
         return StatefulBuilder(
-          builder: (context, setModalState) {
-            return Padding(
-              padding: EdgeInsets.only(top: 24, left: 24, right: 24, bottom: MediaQuery.of(context).viewInsets.bottom + 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text('Map New Monitor Matrix', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: nameController,
-                    decoration: InputDecoration(labelText: 'Pile Reference Designation', filled: true, fillColor: theme.colorScheme.surface, border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none)),
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: weightController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(labelText: 'Initial Input Biomass Weight (kg)', filled: true, fillColor: theme.colorScheme.surface, border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none)),
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    decoration: BoxDecoration(color: theme.colorScheme.surface, borderRadius: BorderRadius.circular(14)),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: currentTypeSelection,
-                        isExpanded: true,
-                        items: ['Kitchen Greens (Nitrogen-Rich)', 'Brown Cardboard/Dry Leaves (Carbon-Rich)', 'Mixed Agricultural Biomass']
-                            .map((String val) => DropdownMenuItem<String>(value: val, child: Text(val, style: const TextStyle(fontSize: 14)))).toList(),
-                        onChanged: (val) {
-                          if (val != null) setModalState(() => currentTypeSelection = val);
-                        },
+            builder: (context, setModalState) {
+              return Padding(
+                padding: EdgeInsets.only(top: 24, left: 24, right: 24, bottom: MediaQuery.of(context).viewInsets.bottom + 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text('Map New Monitor Matrix', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+                    const SizedBox(height: 20),
+                    TextField(
+                      controller: nameController,
+                      decoration: InputDecoration(labelText: 'Pile Reference Designation', filled: true, fillColor: theme.colorScheme.surface, border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none)),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: weightController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(labelText: 'Initial Input Biomass Weight (kg)', filled: true, fillColor: theme.colorScheme.surface, border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none)),
+                    ),
+                    const SizedBox(height: 14),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      decoration: BoxDecoration(color: theme.colorScheme.surface, borderRadius: BorderRadius.circular(14)),
+                      child: DropdownButtonHideUnderline(
+                        child: DropdownButton<String>(
+                          value: currentTypeSelection,
+                          isExpanded: true,
+                          items: ['Kitchen Greens (Nitrogen-Rich)', 'Brown Cardboard/Dry Leaves (Carbon-Rich)', 'Mixed Agricultural Biomass']
+                              .map((String val) => DropdownMenuItem<String>(value: val, child: Text(val, style: const TextStyle(fontSize: 14)))).toList(),
+                          onChanged: (val) {
+                            if (val != null) setModalState(() => currentTypeSelection = val);
+                          },
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 24),
-                  ElevatedButton(
-                    onPressed: () {
-                      if (nameController.text.isNotEmpty) {
-                        setState(() {
-                          activeCompostPiles.add({
-                            "name": nameController.text,
-                            "type": currentTypeSelection.split(' ')[0],
-                            "weight": weightController.text.isEmpty ? "0" : weightController.text,
-                            "date": "Just Now",
-                            "isStarred": false
+                    const SizedBox(height: 24),
+                    ElevatedButton(
+                      onPressed: () {
+                        if (nameController.text.isNotEmpty) {
+                          setState(() {
+                            activeCompostPiles.add({
+                              "name": nameController.text,
+                              "type": currentTypeSelection.split(' ')[0],
+                              "weight": weightController.text.isEmpty ? "0" : weightController.text,
+                              "date": "Just Now",
+                              "isStarred": false
+                            });
                           });
-                        });
-                        Navigator.pop(context);
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.primary, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
-                    child: const Text('Initialize Tracking', style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                ],
-              ),
-            );
-          }
+                          Navigator.pop(context);
+                        }
+                      },
+                      style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.primary, foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                      child: const Text('Initialize Tracking', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              );
+            }
         );
       },
     );
@@ -683,7 +853,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final theme = Theme.of(context);
     final lang = widget.isEnglish;
 
-    // Filtered Arrays processing sorting priorities (Starred items always absolute first layout priority)
     final filteredPiles = widget.activePiles.where((pile) {
       final name = pile["name"].toString().toLowerCase();
       return name.contains(_searchQuery.toLowerCase());
@@ -694,140 +863,203 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 4.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('${lang ? "Hello" : "Mwapoleni"}, ${widget.userName}! 👋', style: theme.textTheme.displayLarge),
-                        const SizedBox(height: 4),
-                        Text(AppStrings.get('subGreeting', lang), style: const TextStyle(fontSize: 14, color: Colors.black54)),
-                      ],
-                    ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${AppStrings.get('welcome', lang).replaceAll('!', '')}, ${widget.userName}',
+                        style: theme.textTheme.displayLarge?.copyWith(fontSize: 22),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        AppStrings.get('subGreeting', lang),
+                        style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.5), fontSize: 13),
+                      ),
+                    ],
+                  ),
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: theme.colorScheme.primary.withOpacity(0.1),
+                    child: Icon(Icons.person_rounded, color: theme.colorScheme.primary),
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
-
-              // Search Bar Layout Element Matrix
+              const SizedBox(height: 24),
               TextField(
                 controller: _searchController,
                 onChanged: (val) => setState(() => _searchQuery = val),
                 decoration: InputDecoration(
-                  hintText: 'Search matrix reference designations...',
-                  prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                  hintText: lang ? 'Search piles...' : 'Fwayeni imbo...',
+                  prefixIcon: const Icon(Icons.search_rounded),
                   filled: true,
-                  fillColor: Colors.white,
+                  fillColor: theme.colorScheme.surface,
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide.none),
-                  contentPadding: EdgeInsets.zero
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0),
                 ),
               ),
-              const SizedBox(height: 24),
-
-              Text(AppStrings.get('activeTag', lang), style: theme.textTheme.displayLarge?.copyWith(fontSize: 18)),
-              const SizedBox(height: 12),
-
+              const SizedBox(height: 28),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(AppStrings.get('activeTag', lang), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(color: theme.colorScheme.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(20)),
+                    child: Text('${filteredPiles.length}', style: TextStyle(color: theme.colorScheme.primary, fontSize: 12, fontWeight: FontWeight.bold)),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
               if (filteredPiles.isEmpty)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-                  child: const Text('No active matching piles monitored.', style: TextStyle(color: Colors.grey, fontSize: 13), textAlign: TextAlign.center),
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 40.0),
+                    child: Text(lang ? 'No matching piles found.' : 'Tapali imbo ishimoneke.', style: const TextStyle(color: Colors.grey)),
+                  ),
                 )
               else
-                ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: filteredPiles.length,
-                  separatorBuilder: (context, index) => const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final currentItem = filteredPiles[index];
-                    final originalIndex = widget.activePiles.indexOf(currentItem);
-                    final bool isStarred = currentItem["isStarred"] as bool;
+                ...List.generate(filteredPiles.length, (index) {
+                  final pile = filteredPiles[index];
+                  final int sourceIndex = widget.activePiles.indexOf(pile);
 
-                    return Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: isStarred ? Border.all(color: theme.colorScheme.secondary.withOpacity(0.5), width: 1.5) : null),
-                      child: Row(
+                  return Container(
+                      margin: const EdgeInsets.only(bottom: 20),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 15, offset: const Offset(0, 8))],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          Icon(Icons.layers_rounded, color: isStarred ? theme.colorScheme.secondary : theme.colorScheme.primary.withOpacity(0.5), size: 28),
-                          const SizedBox(width: 14),
-                          Expanded(
+                          Padding(
+                            padding: const EdgeInsets.all(20.0),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(currentItem["name"]!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                                Text("${currentItem["type"]} • ${currentItem["weight"]}kg • ${currentItem["date"]}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                                Row(
+                                  children: [
+                                    Icon(Icons.layers_rounded, color: theme.colorScheme.primary, size: 28),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(pile["name"]!, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                          const SizedBox(height: 2),
+                                          Text('${pile["type"]} • ${pile["weight"]}kg • ${pile["date"]}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                                        ],
+                                      ),
+                                    ),
+                                    IconButton(
+                                      icon: Icon(pile["isStarred"] as bool ? Icons.star_rounded : Icons.star_border_rounded),
+                                      color: pile["isStarred"] as bool ? theme.colorScheme.secondary : Colors.grey,
+                                      onPressed: () => widget.onToggleStar(sourceIndex),
+                                    )
+                                  ],
+                                ),
+                                const SizedBox(height: 20),
+                                Text(AppStrings.get('overallStatus', lang), style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Container(
+                                      width: 10,
+                                      height: 10,
+                                      decoration: const BoxDecoration(color: Color(0xFF4E7D63), shape: BoxShape.circle),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(AppStrings.get('healthyCooking', lang), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF4E7D63))),
+                                    const Spacer(),
+                                    const Text('74%', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E352F))),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: LinearProgressIndicator(
+                                    value: 0.74,
+                                    minHeight: 6,
+                                    backgroundColor: theme.colorScheme.surface,
+                                    color: const Color(0xFF4E7D63),
+                                  ),
+                                ),
                               ],
                             ),
                           ),
-                          IconButton(
-                            icon: Icon(isStarred ? Icons.star_rounded : Icons.star_border_rounded, color: isStarred ? theme.colorScheme.secondary : Colors.grey),
-                            onPressed: () => widget.onToggleStar(originalIndex),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                            decoration: BoxDecoration(color: theme.colorScheme.surface.withOpacity(0.4), borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24))),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(AppStrings.get('liveConditions', lang), style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
+                                TextButton.icon(
+                                  style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                                  onPressed: () => _showLiveMetricsExplorerModal(context, pile["name"]!),
+                                  icon: const Icon(Icons.analytics_rounded, size: 16),
+                                  label: Text(lang ? 'View Readouts' : 'Mone Fyonse', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                )
+                              ],
+                            ),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.check_circle_outline_rounded, color: Colors.green, size: 26),
-                            onPressed: () => widget.onMarkAsReady(originalIndex),
-                          )
+                          SizedBox(
+                            height: 100,
+                            child: PageView(
+                              physics: const BouncingScrollPhysics(),
+                              children: [
+                                _buildMetricItem(AppStrings.get('temp', lang), '54.5°C', AppStrings.get('optimal', lang), Icons.thermostat_rounded, const Color(0xFFD66853)),
+                                _buildMetricItem(AppStrings.get('moisture', lang), '62%', AppStrings.get('optimal', lang), Icons.water_drop_rounded, const Color(0xFF4A90E2)),
+                                _buildMetricItem(AppStrings.get('ph', lang), '6.8 pH', AppStrings.get('optimal', lang), Icons.science_rounded, const Color(0xFF8B5AAD)),
+                                _buildMetricItem(AppStrings.get('aeration', lang), 'High', AppStrings.get('optimal', lang), Icons.wind_power_rounded, const Color(0xFF50B4B1)),
+                              ],
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: OutlinedButton(
+                              onPressed: () => widget.onMarkAsReady(sourceIndex),
+                              style: OutlinedButton.styleFrom(
+                                side: BorderSide(color: theme.colorScheme.primary.withOpacity(0.2)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                padding: const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                              child: Text(lang ? 'Mark Pile Fully Processed' : 'Ishi fyo Naipya', style: TextStyle(color: theme.colorScheme.primary, fontWeight: FontWeight.bold, fontSize: 13)),
+                            ),
+                          ),
                         ],
                       ),
-                    );
-                  },
-                ),
-              const SizedBox(height: 24),
-
+                      ];
+                  }),
+              const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(color: theme.colorScheme.primary, borderRadius: BorderRadius.circular(24)),
-                child: Row(
+                decoration: BoxDecoration(color: const Color(0xFFE5DDD3), borderRadius: BorderRadius.circular(24)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(AppStrings.get('overallStatus', lang), style: const TextStyle(color: Colors.white60, fontSize: 13)),
-                          const SizedBox(height: 4),
-                          Text(AppStrings.get('healthyCooking', lang), style: const TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.bold)),
-                        ],
-                      ),
+                    Row(
+                      children: [
+                        Icon(Icons.lightbulb_rounded, color: theme.colorScheme.secondary, size: 24),
+                        const SizedBox(width: 8),
+                        Text(AppStrings.get('tipsTitle', lang), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+                      ],
                     ),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(color: theme.colorScheme.secondary, shape: BoxShape.circle),
-                      child: const Text('82%', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
-                    )
+                    const SizedBox(height: 10),
+                    Text(AppStrings.get('tip1Title', lang), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87)),
+                    const SizedBox(height: 4),
+                    Text(AppStrings.get('tip1Desc', lang), style: const TextStyle(fontSize: 13, color: Colors.black54, height: 1.4)),
                   ],
                 ),
               ),
-              const SizedBox(height: 28),
-
-              Text(AppStrings.get('liveConditions', lang), style: theme.textTheme.displayLarge?.copyWith(fontSize: 17)),
-              const SizedBox(height: 12),
-
-              SizedBox(
-                height: 120,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  physics: const BouncingScrollPhysics(),
-                  children: [
-                    _buildSlidableCard(context, AppStrings.get('temp', lang), '54°C', Icons.thermostat_rounded, Colors.orange.shade700),
-                    _buildSlidableCard(context, AppStrings.get('moisture', lang), '60%', Icons.water_drop_rounded, Colors.blue.shade700),
-                    _buildSlidableCard(context, AppStrings.get('ph', lang), '6.8 pH', Icons.science_rounded, Colors.purple.shade700),
-                    _buildSlidableCard(context, AppStrings.get('aeration', lang), AppStrings.get('optimal', lang), Icons.air_rounded, Colors.teal.shade700),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 28),
-
-              Text(AppStrings.get('tipsTitle', lang), style: theme.textTheme.displayLarge?.copyWith(fontSize: 17)),
-              const SizedBox(height: 12),
-              _buildPlainEnglishTip(context, title: AppStrings.get('tip1Title', lang), description: AppStrings.get('tip1Desc', lang), icon: Icons.waves_rounded),
+              const SizedBox(height: 40),
             ],
           ),
         ),
@@ -835,54 +1067,162 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildSlidableCard(BuildContext context, String title, String value, IconData icon, Color iconColor) {
-    final theme = Theme.of(context);
-    return Container(
-      width: 145,
-      margin: const EdgeInsets.only(right: 12, bottom: 4),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: theme.colorScheme.surface, borderRadius: BorderRadius.circular(20)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
+  Widget _buildMetricItem(String label, String value, String status, IconData icon, Color color) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+      child: Row(
         children: [
-          Icon(icon, color: iconColor, size: 24),
-          const SizedBox(height: 10),
-          Text(title, style: const TextStyle(fontSize: 12, color: Colors.black54, fontWeight: FontWeight.w500), maxLines: 1, overflow: TextOverflow.ellipsis),
-          const SizedBox(height: 2),
-          Text(value, style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: theme.colorScheme.primary)),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(16)),
+            child: Icon(icon, color: color, size: 26),
+          ),
+          const SizedBox(width: 16),
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500)),
+              const SizedBox(height: 2),
+              Text(value, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+            ],
+          ),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(color: Colors.grey.shade100, borderRadius: BorderRadius.circular(8)),
+            child: Text(status, style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey.shade700)),
+          )
         ],
       ),
     );
   }
 
-  Widget _buildPlainEnglishTip(BuildContext context, {required String title, required String description, required IconData icon}) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: const Color(0xFFC68B59), size: 22),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                const SizedBox(height: 4),
-                Text(description, style: const TextStyle(color: Colors.black54, fontSize: 13, height: 1.4)),
-              ],
-            ),
-          )
-        ],
+  void _showLiveMetricsExplorerModal(BuildContext context, String targetPileName) {
+    final theme = Theme.of(context);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: theme.scaffoldBackgroundColor,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) {
+        return Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(targetPileName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+              const SizedBox(height: 8),
+              const Text('Biometric Graph Vector Simulation', style: TextStyle(fontSize: 12, color: Colors.grey), textAlign: TextAlign.center),
+              const SizedBox(height: 24),
+              SizedBox(
+                height: 120,
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [40, 65, 55, 78, 92, 85, 110].map((h) => Container(
+                    width: 24,
+                    height: h.toDouble(),
+                    decoration: BoxDecoration(color: theme.colorScheme.primary.withOpacity(0.8), borderRadius: BorderRadius.circular(6)),
+                  )).toList(),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Log 01', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                  Text('Active Peak Period', style: TextStyle(fontSize: 10, color: Colors.grey, fontWeight: FontWeight.bold)),
+                  Text('Log 07 (Now)', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                ],
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.primary, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                child: const Text('Dismiss View'),
+              )
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// ==========================================
+// SCREEN: MONITORING SECTION (ACTIVE TRACKING)
+// ==========================================
+class MonitoringScreen extends StatelessWidget {
+  final bool isEnglish;
+  final List<Map<String, dynamic>> activePiles;
+
+  const MonitoringScreen({super.key, required this.isEnglish, required this.activePiles});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final lang = isEnglish;
+
+    return Scaffold(
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(24.0),
+          children: [
+            Text(AppStrings.get('monitoringTitle', lang), style: theme.textTheme.displayLarge),
+            const SizedBox(height: 6),
+            Text(AppStrings.get('monitoringSub', lang), style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.5), fontSize: 13)),
+            const SizedBox(height: 24),
+            if (activePiles.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 40.0),
+                child: Center(child: Text(lang ? 'No active telemetry node feeds.' : 'Tapali mishingo ilebomba pali nomba.', style: const TextStyle(color: Colors.grey))),
+              )
+            else
+              ...activePiles.map((pile) {
+                return Card(
+                  color: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: theme.colorScheme.surface)),
+                  margin: const EdgeInsets.only(bottom: 14),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      children: [
+                        Icon(Icons.sensors_rounded, color: theme.colorScheme.secondary, size: 32),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(pile["name"]!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Icon(Icons.thermostat_rounded, size: 14, color: Colors.red.shade400),
+                                  const Text(' 54°C  ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                  Icon(Icons.water_drop_rounded, size: 14, color: Colors.blue.shade400),
+                                  const Text(' 62% Moisture', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                ],
+                              )
+                            ],
+                          ),
+                        ),
+                        Icon(Icons.radio_button_checked_rounded, color: Colors.green.shade600, size: 16),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+          ],
+        ),
       ),
     );
   }
 }
 
 // ==========================================
-// SCREEN 3: HISTORY ARCHIVE STORAGE
+// SCREEN 3: HISTORY RECORDS
 // ==========================================
 class HistoryScreen extends StatelessWidget {
   final bool isEnglish;
@@ -893,76 +1233,65 @@ class HistoryScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final lang = isEnglish;
+
     return Scaffold(
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(24.0),
           children: [
-            Text(AppStrings.get('historyTitle', isEnglish), style: theme.textTheme.displayLarge),
-            const SizedBox(height: 4),
-            Text(AppStrings.get('historySub', isEnglish), style: const TextStyle(fontSize: 14, color: Colors.black54)),
+            Text(AppStrings.get('historyTitle', lang), style: theme.textTheme.displayLarge),
+            const SizedBox(height: 6),
+            Text(AppStrings.get('historySub', lang), style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.5), fontSize: 13, height: 1.4)),
             const SizedBox(height: 24),
-
             if (historyPiles.isEmpty)
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-                child: const Text('No archived soil metrics historical reference profiles.', style: TextStyle(color: Colors.grey, fontSize: 13), textAlign: TextAlign.center),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 60.0),
+                child: Center(child: Text(lang ? 'No completed yields yet.' : 'Tapali ifyakupya fyapandwa.', style: const TextStyle(color: Colors.grey))),
               )
             else
-              ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: historyPiles.length,
-                separatorBuilder: (context, index) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  return _buildHistoryItem(
-                    context,
-                    date: historyPiles[index]["date"]!,
-                    status: historyPiles[index]["name"]!,
-                    details: historyPiles[index]["details"]!
-                  );
-                },
-              ),
+              ...List.generate(historyPiles.length, (index) {
+                final item = historyPiles[index];
+                return Card(
+                  color: Colors.white,
+                  surfaceTintColor: Colors.transparent,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: theme.colorScheme.surface)),
+                  margin: const EdgeInsets.only(bottom: 14),
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    leading: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(color: const Color(0xFFEAE3D2), borderRadius: BorderRadius.circular(12)),
+                      child: const Icon(Icons.workspace_premium_rounded, color: Color(0xFFC68B59)),
+                    ),
+                    title: Text(item["name"]!, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 4),
+                        Text(item["details"]!, style: const TextStyle(color: Color(0xFF4E7D63), fontSize: 12, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 2),
+                        Text(item["date"]!, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                      ],
+                    ),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(color: theme.colorScheme.surface, borderRadius: BorderRadius.circular(6)),
+                      child: Text(AppStrings.get('h1', lang), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.black54)),
+                    ),
+                  ),
+                );
+              }),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildHistoryItem(BuildContext context, {required String date, required String status, required String details}) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: Colors.green.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-            child: const Icon(Icons.verified_rounded, color: Colors.green),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(date, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                const SizedBox(height: 2),
-                Text(status, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                const SizedBox(height: 2),
-                Text(details, style: const TextStyle(fontSize: 12, color: Colors.black54)),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
 }
 
 // ==========================================
-// SCREEN 4: ALERTS SCREEN
+// SCREEN 4: ALERTS FEED
 // ==========================================
 class AlertsScreen extends StatelessWidget {
   final bool isEnglish;
@@ -971,30 +1300,44 @@ class AlertsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final lang = isEnglish;
+
     return Scaffold(
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(24.0),
           children: [
-            Text(AppStrings.get('alertsTitle', isEnglish), style: theme.textTheme.displayLarge),
-            const SizedBox(height: 4),
-            Text(AppStrings.get('alertsSub', isEnglish), style: const TextStyle(fontSize: 14, color: Colors.black54)),
+            Text(AppStrings.get('alertsTitle', lang), style: theme.textTheme.displayLarge),
+            const SizedBox(height: 6),
+            Text(AppStrings.get('alertsSub', lang), style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.5), fontSize: 13)),
             const SizedBox(height: 24),
             Container(
               padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-              child: Column(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: theme.colorScheme.secondary.withOpacity(0.2),
+                  width: 1,
+                ),
+              ),
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.water_drop_rounded, color: Colors.blue, size: 20),
-                      const SizedBox(width: 10),
-                      Expanded(child: Text(AppStrings.get('alert1Title', isEnglish), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14))),
-                    ],
+                  Icon(Icons.warning_amber_rounded, color: theme.colorScheme.secondary, size: 28),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(AppStrings.get('alert1Title', lang), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        const SizedBox(height: 4),
+                        Text(AppStrings.get('alert1Desc', lang), style: const TextStyle(color: Colors.black54, fontSize: 13, height: 1.4)),
+                        const SizedBox(height: 12),
+                        Text(lang ? '3 hours ago' : 'Inshita 3 ishiti kuli numa', style: const TextStyle(color: Colors.grey, fontSize: 10)),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(AppStrings.get('alert1Desc', isEnglish), style: const TextStyle(color: Colors.black54, fontSize: 13, height: 1.4)),
                 ],
               ),
             ),
@@ -1006,157 +1349,116 @@ class AlertsScreen extends StatelessWidget {
 }
 
 // ==========================================
-// SCREEN 5: STRUCTURAL SETTINGS SCREEN
+// SCREEN 5: SETTINGS CONTROL VIA HEADER GEAR
 // ==========================================
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   final String userName;
   final bool isEnglish;
   final ValueChanged<bool> onLanguageChange;
 
-  const SettingsScreen({super.key, required this.userName, required this.isEnglish, required this.onLanguageChange});
+  const SettingsScreen({
+    super.key,
+    required this.userName,
+    required this.isEnglish,
+    required this.onLanguageChange
+  });
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  late bool _localIsEnglish;
+
+  @override
+  void initState() {
+    super.initState();
+    _localIsEnglish = widget.isEnglish;
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final lang = isEnglish;
-    final String initial = userName.isNotEmpty ? userName[0].toUpperCase() : "A";
 
     return Scaffold(
+      appBar: AppBar(backgroundColor: theme.scaffoldBackgroundColor, elevation: 0),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(AppStrings.get('settingsTitle', lang), style: theme.textTheme.displayLarge),
-              const SizedBox(height: 24),
-
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24)),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 32,
-                      backgroundColor: theme.colorScheme.primary,
-                      child: Text(initial, style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                    ),
-                    const SizedBox(width: 18),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(userName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, letterSpacing: -0.2)),
-                          const SizedBox(height: 4),
-                          Text('${AppStrings.get('settingsSub', lang)} Ecosystem Node', style: const TextStyle(fontSize: 13, color: Colors.black45)),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+        child: ListView(
+          padding: const EdgeInsets.all(24.0),
+          children: [
+            Text(AppStrings.get('settingsTitle', _localIsEnglish), style: theme.textTheme.displayLarge),
+            const SizedBox(height: 6),
+            Text('${AppStrings.get('settingsSub', _localIsEnglish)} ${widget.userName}', style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.5), fontSize: 13)),
+            const SizedBox(height: 32),
+            Text(AppStrings.get('langSection', _localIsEnglish), style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.grey, letterSpacing: 0.5)),
+            const SizedBox(height: 12),
+            Card(
+              color: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Row(
                       children: [
-                        Icon(Icons.translate_rounded, color: theme.colorScheme.primary, size: 22),
-                        const SizedBox(width: 16),
-                        Text(AppStrings.get('langSection', lang), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                        Icon(Icons.translate_rounded, color: theme.colorScheme.primary),
+                        const SizedBox(width: 12),
+                        Text(_localIsEnglish ? 'Switch to Bemba' : 'Alulani mu Cisungu', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                       ],
                     ),
-                    Row(
-                      children: [
-                        const Text("EN", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
-                        Switch.adaptive(
-                          value: !isEnglish,
-                          activeColor: theme.colorScheme.secondary,
-                          onChanged: (value) => onLanguageChange(!value),
-                        ),
-                        const Text("BEM", style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey)),
-                      ],
-                    )
+                    Switch.adaptive(
+                      value: !_localIsEnglish,
+                      activeColor: theme.colorScheme.secondary,
+                      onChanged: (val) {
+                        setState(() => _localIsEnglish = !val);
+                        widget.onLanguageChange(!val);
+                      },
+                    ),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
-
-              _buildSettingsOption(context, icon: Icons.manage_accounts_rounded, title: AppStrings.get('opt1', lang), descriptor: 'Update user profiles, update account tokens, and secure custom preferences.'),
-              _buildSettingsOption(context, icon: Icons.gpp_good_rounded, title: AppStrings.get('opt2', lang), descriptor: 'Manage telemetry cryptographic signature certificates and hardware nodes authorization protocols.'),
-              _buildSettingsOption(context, icon: Icons.help_center_rounded, title: AppStrings.get('opt3', lang), descriptor: 'Access agricultural engineering documentation matching optimal moisture balances.'),
-              _buildSettingsOption(context, icon: Icons.info_outline_rounded, title: AppStrings.get('opt4', lang), descriptor: 'Smart Compost Monitor Systems Integration Engine v3.0.0 Stable Build.'),
-
-              const SizedBox(height: 32),
-
-              ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => LoginScreen(isEnglish: isEnglish, onLanguageChange: onLanguageChange)));
+            ),
+            const SizedBox(height: 24),
+            _buildActionConfigTile(Icons.person_outline_rounded, AppStrings.get('opt1', _localIsEnglish)),
+            _buildActionConfigTile(Icons.security_rounded, AppStrings.get('opt2', _localIsEnglish)),
+            _buildActionConfigTile(Icons.help_outline_rounded, AppStrings.get('opt3', _localIsEnglish)),
+            _buildActionConfigTile(Icons.info_outline_rounded, AppStrings.get('opt4', _localIsEnglish)),
+            const SizedBox(height: 16),
+            Card(
+              color: const Color(0xFFF2EBE1),
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: ListTile(
+                onTap: () {
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(builder: (context) => GetStartedScreen(isEnglish: _localIsEnglish, onLanguageChange: widget.onLanguageChange)),
+                        (route) => false,
+                  );
                 },
-                icon: const Icon(Icons.logout_rounded, size: 20),
-                label: Text(AppStrings.get('logout', lang), style: const TextStyle(fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFBA1A1A),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  elevation: 0,
-                ),
+                leading: const Icon(Icons.logout_rounded, color: Colors.redAccent),
+                title: Text(AppStrings.get('logout', _localIsEnglish), style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 14)),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildSettingsOption(BuildContext context, {required IconData icon, required String title, required String descriptor}) {
-    final theme = Theme.of(context);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+  Widget _buildActionConfigTile(IconData icon, String title) {
+    return Card(
+      color: Colors.white,
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
-        leading: Icon(icon, color: theme.colorScheme.primary, size: 22),
-        title: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Color(0xFF1A1C1A))),
-        trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey, size: 20),
-        onTap: () {
-          showModalBottomSheet(
-            context: context,
-            backgroundColor: theme.scaffoldBackgroundColor,
-            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-            builder: (context) {
-              return Padding(
-                padding: const EdgeInsets.all(28.0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(icon, color: theme.colorScheme.primary),
-                        const SizedBox(width: 12),
-                        Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    Text(descriptor, style: const TextStyle(fontSize: 14, color: Colors.black54, height: 1.5)),
-                    const SizedBox(height: 28),
-                    ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: ElevatedButton.styleFrom(backgroundColor: theme.colorScheme.primary, foregroundColor: Colors.white),
-                      child: const Text('Dismiss Panel'),
-                    )
-                  ],
-                ),
-              );
-            },
-          );
-        },
+        leading: Icon(icon, color: Colors.grey.shade600, size: 22),
+        title: Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+        trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey),
+        onTap: () {},
       ),
     );
   }
