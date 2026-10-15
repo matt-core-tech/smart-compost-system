@@ -463,8 +463,14 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on AuthException catch (e) {
       if (mounted) {
+        String msg = e.message;
+        if (e.message.toLowerCase().contains('invalid login credentials')) {
+          msg = 'Incorrect email or password. Please check your details and try again.';
+        } else if (e.message.toLowerCase().contains('email not confirmed')) {
+          msg = 'Email address has not been confirmed. Please check your email inbox.';
+        }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: Colors.red.shade700),
+          SnackBar(content: Text(msg), backgroundColor: Colors.red.shade700, duration: const Duration(seconds: 4)),
         );
       }
     } catch (e) {
@@ -642,8 +648,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
       }
     } on AuthException catch (e) {
       if (mounted) {
+        String msg = e.message;
+        if (e.message.toLowerCase().contains('already registered') || e.message.toLowerCase().contains('user_already_exists')) {
+          msg = 'An account with this email address already exists. Please log in instead.';
+        }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: Colors.red.shade700),
+          SnackBar(content: Text(msg), backgroundColor: Colors.red.shade700, duration: const Duration(seconds: 4)),
         );
       }
     } catch (e) {
