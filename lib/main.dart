@@ -426,6 +426,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController(text: 'mathews@northrise.ac.zm');
   final _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _obscurePassword = true;
 
   @override
   void dispose() {
@@ -510,7 +511,14 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 32),
               _buildInputField(label: 'Email address', hint: 'mathews@northrise.ac.zm', controller: _emailController),
               const SizedBox(height: 16),
-              _buildInputField(label: 'Password', hint: '••••••••', isPassword: true, controller: _passwordController),
+              _buildInputField(
+                label: 'Password',
+                hint: '••••••••',
+                isPassword: true,
+                obscureText: _obscurePassword,
+                onToggleObscure: () => setState(() => _obscurePassword = !_obscurePassword),
+                controller: _passwordController,
+              ),
               const SizedBox(height: 24),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
@@ -557,7 +565,14 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  Widget _buildInputField({required String label, required String hint, required TextEditingController controller, bool isPassword = false}) {
+  Widget _buildInputField({
+    required String label,
+    required String hint,
+    required TextEditingController controller,
+    bool isPassword = false,
+    bool obscureText = false,
+    VoidCallback? onToggleObscure,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -565,7 +580,7 @@ class _LoginScreenState extends State<LoginScreen> {
         const SizedBox(height: 6),
         TextField(
           controller: controller,
-          obscureText: isPassword,
+          obscureText: isPassword ? obscureText : false,
           decoration: InputDecoration(
             hintText: hint,
             filled: true,
@@ -573,6 +588,15 @@ class _LoginScreenState extends State<LoginScreen> {
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
             enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
+            suffixIcon: isPassword
+                ? IconButton(
+                    icon: Icon(
+                      obscureText ? Icons.visibility_off : Icons.visibility,
+                      color: Colors.grey.shade600,
+                    ),
+                    onPressed: onToggleObscure,
+                  )
+                : null,
           ),
         ),
       ],
@@ -593,6 +617,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   bool _isLoading = false;
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
 
   @override
   void dispose() {
@@ -695,9 +721,23 @@ class _SignUpScreenState extends State<SignUpScreen> {
               const SizedBox(height: 16),
               _buildInputField(label: 'Email address', hint: 'mathews@northrise.ac.zm', controller: _emailController),
               const SizedBox(height: 16),
-              _buildInputField(label: 'Password', hint: '••••••••', isPassword: true, controller: _passwordController),
+              _buildInputField(
+                label: 'Password',
+                hint: '••••••••',
+                isPassword: true,
+                obscureText: _obscurePassword,
+                onToggleObscure: () => setState(() => _obscurePassword = !_obscurePassword),
+                controller: _passwordController,
+              ),
               const SizedBox(height: 16),
-              _buildInputField(label: 'Confirm Password', hint: '••••••••', isPassword: true, controller: _confirmPasswordController),
+              _buildInputField(
+                label: 'Confirm Password',
+                hint: '••••••••',
+                isPassword: true,
+                obscureText: _obscureConfirmPassword,
+                onToggleObscure: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
+                controller: _confirmPasswordController,
+              ),
               const SizedBox(height: 24),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
@@ -744,7 +784,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
     );
   }
 
-  Widget _buildInputField({required String label, required String hint, required TextEditingController controller, bool isPassword = false}) {
+  Widget _buildInputField({
+    required String label,
+    required String hint,
+    required TextEditingController controller,
+    bool isPassword = false,
+    bool obscureText = false,
+    VoidCallback? onToggleObscure,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -752,7 +799,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         const SizedBox(height: 6),
         TextField(
           controller: controller,
-          obscureText: isPassword,
+          obscureText: isPassword ? obscureText : false,
           decoration: InputDecoration(
             hintText: hint,
             filled: true,
@@ -760,6 +807,15 @@ class _SignUpScreenState extends State<SignUpScreen> {
             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
             enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Colors.grey.shade300)),
+            suffixIcon: isPassword
+                ? IconButton(
+                    icon: Icon(
+                      obscureText ? Icons.visibility_off : Icons.visibility,
+                      color: Colors.grey.shade600,
+                    ),
+                    onPressed: onToggleObscure,
+                  )
+                : null,
           ),
         ),
       ],
@@ -1301,6 +1357,19 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     int needsAttentionCount = piles.where((p) => p.status != StatusLevel.onTrack).length;
 
+    String displayName = 'Farmer';
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user != null) {
+        final metaName = user.userMetadata?['full_name'];
+        if (metaName != null && metaName.toString().trim().isNotEmpty) {
+          displayName = metaName.toString().trim();
+        } else if (user.email != null && user.email!.isNotEmpty) {
+          displayName = user.email!.split('@').first;
+        }
+      }
+    } catch (_) {}
+
     return Scaffold(
       backgroundColor: const Color(0xFFF2F4F5),
       body: SafeArea(
@@ -1315,7 +1384,7 @@ class HomeScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(getRealtimeGreeting('Mathews'), style: const TextStyle(fontFamily: 'Serif', color: Colors.white, fontSize: 22)),
+                    Text(getRealtimeGreeting(displayName), style: const TextStyle(fontFamily: 'Serif', color: Colors.white, fontSize: 22)),
                     const SizedBox(height: 2),
                     Text('${piles.length} active piles monitored - Ndola, CB', style: const TextStyle(color: Color(0xFF81E6D9), fontSize: 13)),
                   ],
