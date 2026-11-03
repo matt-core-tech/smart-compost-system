@@ -20,11 +20,12 @@
 const char* WIFI_SSID = "YOUR_WIFI_SSID";
 const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
 
-const char* SUPABASE_URL = "https://rlhfqpufrqibnmyhmtii.supabase.co/rest/v1/telemetry_logs";
+// Target Supabase Endpoint for day_readings
+const char* SUPABASE_URL = "https://rlhfqpufrqibnmyhmtii.supabase.co/rest/v1/day_readings";
 const char* SUPABASE_KEY = "sb_publishable_tQ2Q1GV0jRX5dlqi_wWSBg_qP3l8wJR";
 
-// Target Compost Pile ID
-const char* PILE_ID = "Pile_A_Maize_Stalks";
+// Target Compost Pile UUID (Copy from compost_piles table)
+const char* PILE_UUID = "YOUR_COMPOST_PILE_UUID_HERE";
 
 // Pin Definitions
 #define TEMP_PIN 4        // DS18B20 Data Pin
@@ -35,7 +36,7 @@ OneWire oneWire(TEMP_PIN);
 DallasTemperature tempSensors(&oneWire);
 
 unsigned long lastReadTime = 0;
-const unsigned long READ_INTERVAL = 10000; // Read every 10 seconds
+const unsigned long READ_INTERVAL = 10000; // Send telemetry every 10 seconds
 
 void setup() {
   Serial.begin(115200);
@@ -81,12 +82,13 @@ void loop() {
     float phValue = 3.5 * voltage; // Standard pH calibration formula
     phValue = constrain(phValue, 4.0, 10.0);
 
-    // Output JSON to Serial Monitor
+    // Build Payload referencing existing Compost Pile UUID
     StaticJsonDocument<200> doc;
-    doc["pile_id"] = PILE_ID;
+    doc["pile_id"] = PILE_UUID;
     doc["temp"] = tempC;
     doc["moisture"] = moisturePercent;
     doc["ph"] = phValue;
+    doc["day_number"] = 1;
 
     String jsonOutput;
     serializeJson(doc, jsonOutput);

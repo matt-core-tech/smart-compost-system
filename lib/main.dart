@@ -28,19 +28,65 @@ enum StatusLevel { onTrack, warning, critical, completed }
 enum CompostStage { mesophilic, thermophilic, cooling, maturation }
 
 class DayReading {
+  final int? id;
+  final String? pileId;
   final int day;
   final String dateStr;
-  final double temp;
-  final double moisture;
-  final double ph;
+  final double? temp;
+  final double? moisture;
+  final double? ph;
+  final DateTime? createdAt;
 
   DayReading({
+    this.id,
+    this.pileId,
     required this.day,
     required this.dateStr,
-    required this.temp,
-    required this.moisture,
-    required this.ph,
+    this.temp,
+    this.moisture,
+    this.ph,
+    this.createdAt,
   });
+
+  factory DayReading.fromMap(Map<String, dynamic> map) {
+    double? parseDouble(dynamic val) {
+      if (val == null) return null;
+      if (val is num) return val.toDouble();
+      return double.tryParse(val.toString());
+    }
+
+    String dateDisplay = 'Today';
+    DateTime? created;
+    if (map['created_at'] != null) {
+      try {
+        created = DateTime.parse(map['created_at'].toString());
+        dateDisplay = '${_monthName(created.month)} ${created.day.toString().padLeft(2, '0')}';
+      } catch (_) {}
+    } else if (map['reading_date'] != null) {
+      dateDisplay = map['reading_date'].toString();
+    }
+
+    return DayReading(
+      id: map['id'] != null ? int.tryParse(map['id'].toString()) : null,
+      pileId: map['pile_id']?.toString(),
+      day: map['day_number'] != null ? int.tryParse(map['day_number'].toString()) ?? 1 : 1,
+      dateStr: dateDisplay,
+      temp: parseDouble(map['temp']),
+      moisture: parseDouble(map['moisture']),
+      ph: parseDouble(map['ph']),
+      createdAt: created,
+    );
+  }
+
+  static String _monthName(int month) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    if (month >= 1 && month <= 12) return months[month - 1];
+    return '';
+  }
+
+  String get tempDisplay => temp != null ? '${temp!.round()}°C' : 'Not available';
+  String get moistureDisplay => moisture != null ? '${moisture!.round()}%' : 'Not available';
+  String get phDisplay => ph != null ? ph!.toStringAsFixed(1) : 'Not available';
 }
 
 class CompostAlert {
@@ -61,12 +107,13 @@ class CompostAlert {
 
 class CompostPile {
   final String id;
+  final String? userId;
   final String name;
   final String category;
   StatusLevel status;
-  double temp;
-  double moisture;
-  double ph;
+  double? temp;
+  double? moisture;
+  double? ph;
   List<DayReading> history;
   bool isArchived;
   DateTime startDate;
@@ -74,28 +121,97 @@ class CompostPile {
 
   CompostPile({
     required this.id,
+    this.userId,
     required this.name,
     required this.category,
     required this.status,
-    required this.temp,
-    required this.moisture,
-    required this.ph,
+    this.temp,
+    this.moisture,
+    this.ph,
     required this.history,
     this.isArchived = false,
     required this.startDate,
     this.targetTotalDays = 30,
   });
 
+  factory CompostPile.fromMap(Map<String, dynamic> map, {List<DayReading>? historyReadings}) {
+    double? parseDouble(dynamic val) {
+      if (val == null) return null;
+      if (val is num) return val.toDouble();
+      return double.tryParse(val.toString());
+    }
+
+    DateTime parsedStart = DateTime.now();
+    if (map['start_date'] != null) {
+      try {
+        parsedStart = DateTime.parse(map['start_date'].toString());
+      } catch (_) {}
+    } else if (map['created_at'] != null) {
+      try {
+        parsedStart = DateTime.parse(map['created_at'].toString());
+      } catch (_) {}
+    }
+
+    StatusLevel parsedStatus = StatusLevel.onTrack;
+    if (map['status'] != null) {
+      String statusStr = map['status'].toString().toLowerCase();
+      if (statusStr.contains('warning')) {
+        parsedStatus = StatusLevel.warning;
+      } else if (statusStr.contains('critical')) {
+        parsedStatus = StatusLevel.critical;
+      } else if (statusStr.contains('completed') || statusStr.contains('ready')) {
+        parsedStatus = StatusLevel.completed;
+      }
+    }
+
+    List<DayReading> sortedHistory = historyReadings ?? [];
+    double? latestTemp = parseDouble(map['temp']);
+    double? latestMoisture = parseDouble(map['moisture']);
+    double? latestPh = parseDouble(map['ph']);
+
+    // If latest readings exist in history, take the most recent reading values
+    if (sortedHistory.isNotEmpty) {
+      final latestReading = sortedHistory.last;
+      latestTemp ??= latestReading.temp;
+      latestMoisture ??= latestReading.moisture;
+      latestPh ??= latestReading.ph;
+    }
+
+    final pile = CompostPile(
+      id: map['id'].toString(),
+      userId: map['user_id']?.toString(),
+      name: map['name'] ?? 'Unnamed Pile',
+      category: map['category'] ?? 'General Organic Waste',
+      status: parsedStatus,
+      temp: latestTemp,
+      moisture: latestMoisture,
+      ph: latestPh,
+      history: sortedHistory,
+      isArchived: map['is_archived'] == true,
+      startDate: parsedStart,
+      targetTotalDays: map['target_total_days'] != null ? int.tryParse(map['target_total_days'].toString()) ?? 30 : 30,
+    );
+
+    pile._updateStatus();
+    return pile;
+  }
+
+  String get tempDisplay => temp != null ? '${temp!.round()}°C' : 'Not available';
+  String get moistureDisplay => moisture != null ? '${moisture!.round()}%' : 'Not available';
+  String get phDisplay => ph != null ? ph!.toStringAsFixed(1) : 'Not available';
+
   // Dynamic Overall Progress Percentage
   double get readinessPercent {
     if (isArchived) return 100.0;
 
-    // Evaluate parameter ideal ranges
-    double tempScore = (temp >= 50 && temp <= 65) ? 1.0 : (temp / 60.0).clamp(0.1, 1.0);
-    double moistureScore = (moisture >= 45 && moisture <= 65) ? 1.0 : (moisture / 55.0).clamp(0.1, 1.0);
-    double phScore = (ph >= 6.5 && ph <= 8.0) ? 1.0 : (ph / 7.0).clamp(0.1, 1.0);
+    double activeTemp = temp ?? 55.0;
+    double activeMoisture = moisture ?? 55.0;
+    double activePh = ph ?? 7.0;
 
-    // Calculate progression weighted against elapsed time and optimal conditions
+    double tempScore = (activeTemp >= 50 && activeTemp <= 65) ? 1.0 : (activeTemp / 60.0).clamp(0.1, 1.0);
+    double moistureScore = (activeMoisture >= 45 && activeMoisture <= 65) ? 1.0 : (activeMoisture / 55.0).clamp(0.1, 1.0);
+    double phScore = (activePh >= 6.5 && activePh <= 8.0) ? 1.0 : (activePh / 7.0).clamp(0.1, 1.0);
+
     int daysActive = DateTime.now().difference(startDate).inDays.clamp(1, targetTotalDays);
     double timeProgress = (daysActive / targetTotalDays).clamp(0.0, 1.0);
     double healthFactor = (tempScore * 0.40 + moistureScore * 0.35 + phScore * 0.25);
@@ -117,33 +233,34 @@ class CompostPile {
   int get predictedDaysRemaining {
     if (isArchived || readinessPercent >= 99.5) return 0;
 
-    // Tree 1: Thermal Activity Model
+    double activeTemp = temp ?? 55.0;
+    double activeMoisture = moisture ?? 55.0;
+    double activePh = ph ?? 7.0;
+
     double tree1Days = 0;
-    if (temp < 40) {
+    if (activeTemp < 40) {
       tree1Days += 18;
-    } else if (temp >= 40 && temp <= 65) {
+    } else if (activeTemp >= 40 && activeTemp <= 65) {
       tree1Days += 8;
     } else {
       tree1Days += 12;
     }
 
-    // Tree 2: Moisture & pH Balance Model
     double tree2Days = 0;
-    if (moisture < 40) {
+    if (activeMoisture < 40) {
       tree2Days += 15;
-    } else if (moisture > 70) {
+    } else if (activeMoisture > 70) {
       tree2Days += 12;
     } else {
       tree2Days += 5;
     }
 
-    if (ph < 6.0) {
+    if (activePh < 6.0) {
       tree2Days += 10;
-    } else if (ph >= 6.5 && ph <= 8.0) {
+    } else if (activePh >= 6.5 && activePh <= 8.0) {
       tree2Days += 2;
     }
 
-    // Tree 3: Substrate Decay Dynamics
     double tree3Days = targetTotalDays * (1.0 - (readinessPercent / 100.0));
     if (category.toLowerCase().contains('wood') || category.toLowerCase().contains('sawdust')) {
       tree3Days *= 1.25;
@@ -151,7 +268,6 @@ class CompostPile {
       tree3Days *= 0.85;
     }
 
-    // Ensemble Average
     double forestPrediction = (tree1Days * 0.30) + (tree2Days * 0.30) + (tree3Days * 0.40);
     _updateStatus();
 
@@ -163,9 +279,13 @@ class CompostPile {
       status = StatusLevel.completed;
       return;
     }
-    if (temp < 40 || temp > 70 || moisture > 70 || ph < 5.8) {
+    double activeTemp = temp ?? 55.0;
+    double activeMoisture = moisture ?? 55.0;
+    double activePh = ph ?? 7.0;
+
+    if (activeTemp < 40 || activeTemp > 70 || activeMoisture > 70 || activePh < 5.8) {
       status = StatusLevel.critical;
-    } else if (temp < 50 || moisture < 45 || moisture > 65 || ph < 6.5) {
+    } else if (activeTemp < 50 || activeMoisture < 45 || activeMoisture > 65 || activePh < 6.5) {
       status = StatusLevel.warning;
     } else {
       status = StatusLevel.onTrack;
@@ -925,6 +1045,9 @@ class MainNavigation extends StatefulWidget {
 class _MainNavigationState extends State<MainNavigation> {
   int _currentIndex = 0;
   bool _hasUnreadAlerts = true;
+  bool _isLoadingPiles = true;
+  String? _errorMessage;
+  RealtimeChannel? _realtimeChannel;
 
   List<CompostAlert> alertsList = [
     CompostAlert(
@@ -943,148 +1066,165 @@ class _MainNavigationState extends State<MainNavigation> {
     ),
   ];
 
-  List<CompostPile> piles = [
-    CompostPile(
-      id: 'A',
-      name: 'Pile A — Maize stalks',
-      category: 'Maize stalks',
-      status: StatusLevel.onTrack,
-      temp: 63.0,
-      moisture: 55.0,
-      ph: 7.2,
-      targetTotalDays: 30,
-      startDate: DateTime.now().subtract(const Duration(days: 28)),
-      history: [
-        DayReading(day: 1, dateStr: 'Aug 20', temp: 32, moisture: 60, ph: 6.2),
-        DayReading(day: 7, dateStr: 'Aug 27', temp: 55, moisture: 58, ph: 6.5),
-        DayReading(day: 14, dateStr: 'Sep 03', temp: 65, moisture: 56, ph: 6.8),
-        DayReading(day: 21, dateStr: 'Sep 10', temp: 64, moisture: 55, ph: 7.0),
-        DayReading(day: 28, dateStr: 'Sep 17', temp: 63, moisture: 55, ph: 7.2),
-      ],
-    ),
-    CompostPile(
-      id: 'B',
-      name: 'Pile B — Kitchen waste',
-      category: 'Kitchen waste',
-      status: StatusLevel.warning,
-      temp: 48.0,
-      moisture: 64.0,
-      ph: 6.1,
-      targetTotalDays: 20,
-      startDate: DateTime.now().subtract(const Duration(days: 12)),
-      history: [
-        DayReading(day: 1, dateStr: 'Sep 05', temp: 30, moisture: 68, ph: 5.8),
-        DayReading(day: 6, dateStr: 'Sep 10', temp: 45, moisture: 65, ph: 6.0),
-        DayReading(day: 12, dateStr: 'Sep 16', temp: 48, moisture: 64, ph: 6.1),
-      ],
-    ),
-    CompostPile(
-      id: 'C',
-      name: 'Pile C — Garden mix',
-      category: 'Garden mix',
-      status: StatusLevel.critical,
-      temp: 38.0,
-      moisture: 72.0,
-      ph: 5.5,
-      targetTotalDays: 25,
-      startDate: DateTime.now().subtract(const Duration(days: 5)),
-      history: [
-        DayReading(day: 1, dateStr: 'Sep 12', temp: 28, moisture: 75, ph: 5.4),
-        DayReading(day: 5, dateStr: 'Sep 16', temp: 38, moisture: 72, ph: 5.5),
-      ],
-    ),
-    CompostPile(
-      id: 'D',
-      name: 'Pile D — Sawdust & Manure',
-      category: 'Wood & Manure',
-      status: StatusLevel.onTrack,
-      temp: 58.0,
-      moisture: 52.0,
-      ph: 6.8,
-      targetTotalDays: 45,
-      startDate: DateTime.now().subtract(const Duration(days: 44)),
-      history: [
-        DayReading(day: 1, dateStr: 'Aug 03', temp: 30, moisture: 50, ph: 6.0),
-        DayReading(day: 20, dateStr: 'Aug 23', temp: 62, moisture: 54, ph: 6.5),
-        DayReading(day: 44, dateStr: 'Sep 16', temp: 58, moisture: 52, ph: 6.8),
-      ],
-    ),
-    CompostPile(
-      id: 'E',
-      name: 'Pile E — Coffee Grounds',
-      category: 'Organic Grounds',
-      status: StatusLevel.warning,
-      temp: 42.0,
-      moisture: 35.0,
-      ph: 6.0,
-      targetTotalDays: 25,
-      startDate: DateTime.now().subtract(const Duration(days: 18)),
-      history: [
-        DayReading(day: 1, dateStr: 'Aug 30', temp: 29, moisture: 40, ph: 5.9),
-        DayReading(day: 18, dateStr: 'Sep 16', temp: 42, moisture: 35, ph: 6.0),
-      ],
-    ),
-    CompostPile(
-      id: 'F',
-      name: 'Pile F — Sugarcane Bagasse',
-      category: 'Crop Refuse',
-      status: StatusLevel.onTrack,
-      temp: 60.0,
-      moisture: 58.0,
-      ph: 7.0,
-      targetTotalDays: 35,
-      startDate: DateTime.now().subtract(const Duration(days: 15)),
-      history: [
-        DayReading(day: 1, dateStr: 'Sep 02', temp: 31, moisture: 60, ph: 6.2),
-        DayReading(day: 15, dateStr: 'Sep 16', temp: 60, moisture: 58, ph: 7.0),
-      ],
-    ),
-    CompostPile(
-      id: 'G',
-      name: 'Pile G — Poultry Litter',
-      category: 'High Nitrogen Waste',
-      status: StatusLevel.critical,
-      temp: 74.0,
-      moisture: 30.0,
-      ph: 8.2,
-      targetTotalDays: 28,
-      startDate: DateTime.now().subtract(const Duration(days: 8)),
-      history: [
-        DayReading(day: 1, dateStr: 'Sep 09', temp: 40, moisture: 45, ph: 7.5),
-        DayReading(day: 8, dateStr: 'Sep 16', temp: 74, moisture: 30, ph: 8.2),
-      ],
-    ),
-    CompostPile(
-      id: 'H',
-      name: 'Pile H — Market Vegetable Leaves',
-      category: 'Fresh Green Waste',
-      status: StatusLevel.warning,
-      temp: 45.0,
-      moisture: 68.0,
-      ph: 6.3,
-      targetTotalDays: 18,
-      startDate: DateTime.now().subtract(const Duration(days: 4)),
-      history: [
-        DayReading(day: 1, dateStr: 'Sep 13', temp: 26, moisture: 70, ph: 6.1),
-        DayReading(day: 4, dateStr: 'Sep 16', temp: 45, moisture: 68, ph: 6.3),
-      ],
-    ),
-    CompostPile(
-      id: 'Z',
-      name: 'Pile F — Dry Leaves',
-      category: 'Yard Waste',
-      status: StatusLevel.completed,
-      temp: 25.0,
-      moisture: 20.0,
-      ph: 7.0,
-      isArchived: true,
-      startDate: DateTime.now().subtract(const Duration(days: 60)),
-      history: [
-        DayReading(day: 1, dateStr: 'Jul 18', temp: 25, moisture: 50, ph: 6.5),
-        DayReading(day: 60, dateStr: 'Sep 16', temp: 25, moisture: 20, ph: 7.0),
-      ],
-    ),
-  ];
+  List<CompostPile> piles = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchCompostPilesAndReadings();
+    _subscribeToRealtime();
+  }
+
+  @override
+  void dispose() {
+    _realtimeChannel?.unsubscribe();
+    super.dispose();
+  }
+
+  void _subscribeToRealtime() {
+    try {
+      _realtimeChannel = Supabase.instance.client
+          .channel('public:telemetry')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'day_readings',
+            callback: (payload) {
+              _fetchCompostPilesAndReadings(silent: true);
+            },
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'compost_piles',
+            callback: (payload) {
+              _fetchCompostPilesAndReadings(silent: true);
+            },
+          )
+          .subscribe();
+    } catch (_) {}
+  }
+
+  Future<void> _fetchCompostPilesAndReadings({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _isLoadingPiles = true;
+        _errorMessage = null;
+      });
+    }
+
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      final userId = user?.id;
+
+      if (userId == null) {
+        setState(() {
+          _isLoadingPiles = false;
+          piles = [];
+        });
+        return;
+      }
+
+      // Query compost_piles belonging to authenticated user
+      final dynamic pileRows = await Supabase.instance.client
+          .from('compost_piles')
+          .select()
+          .eq('user_id', userId)
+          .order('created_at', ascending: false);
+
+      List<CompostPile> fetchedPiles = [];
+
+      if (pileRows != null && (pileRows as List).isNotEmpty) {
+        for (var pMap in (pileRows as List)) {
+          final pileMap = Map<String, dynamic>.from(pMap as Map);
+          final pileId = pileMap['id'].toString();
+
+          // Query day_readings for this pile UUID
+          final dynamic readingRows = await Supabase.instance.client
+              .from('day_readings')
+              .select()
+              .eq('pile_id', pileId)
+              .order('created_at', ascending: true);
+
+          List<DayReading> history = [];
+          if (readingRows != null && (readingRows as List).isNotEmpty) {
+            history = (readingRows as List)
+                .map((r) => DayReading.fromMap(Map<String, dynamic>.from(r as Map)))
+                .toList();
+          }
+
+          fetchedPiles.add(CompostPile.fromMap(pileMap, historyReadings: history));
+        }
+      } else {
+        // Auto-seed initial default piles for new user
+        fetchedPiles = await _seedInitialPilesForUser(userId);
+      }
+
+      if (mounted) {
+        setState(() {
+          piles = fetchedPiles;
+          _isLoadingPiles = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Database sync: ${e.toString()}';
+          _isLoadingPiles = false;
+        });
+      }
+    }
+  }
+
+  Future<List<CompostPile>> _seedInitialPilesForUser(String userId) async {
+    List<CompostPile> seededPiles = [];
+    try {
+      final defaultSeedData = [
+        {
+          'user_id': userId,
+          'name': 'Pile A — Maize stalks',
+          'category': 'Maize stalks',
+          'target_total_days': 30,
+          'is_archived': false,
+        },
+        {
+          'user_id': userId,
+          'name': 'Pile B — Kitchen waste',
+          'category': 'Kitchen waste',
+          'target_total_days': 20,
+          'is_archived': false,
+        },
+      ];
+
+      for (var seed in defaultSeedData) {
+        final inserted = await Supabase.instance.client
+            .from('compost_piles')
+            .insert(seed)
+            .select()
+            .single();
+
+        final pileId = inserted['id'].toString();
+
+        final initialReadings = [
+          {'pile_id': pileId, 'day_number': 1, 'temp': 32.0, 'moisture': 60.0, 'ph': 6.2},
+          {'pile_id': pileId, 'day_number': 7, 'temp': 55.0, 'moisture': 58.0, 'ph': 6.5},
+          {'pile_id': pileId, 'day_number': 14, 'temp': 63.0, 'moisture': 55.0, 'ph': 7.2},
+        ];
+
+        final insertedReadings = await Supabase.instance.client
+            .from('day_readings')
+            .insert(initialReadings)
+            .select();
+
+        List<DayReading> history = (insertedReadings as List)
+            .map((r) => DayReading.fromMap(Map<String, dynamic>.from(r as Map)))
+            .toList();
+
+        seededPiles.add(CompostPile.fromMap(Map<String, dynamic>.from(inserted as Map), historyReadings: history));
+      }
+    } catch (_) {}
+    return seededPiles;
+  }
 
   void _checkAndTriggerReadinessAlerts() {
     for (var pile in piles) {
@@ -1137,22 +1277,39 @@ class _MainNavigationState extends State<MainNavigation> {
               const SizedBox(height: 20),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1B3B2B), minimumSize: const Size(double.infinity, 50)),
-                onPressed: () {
+                onPressed: () async {
                   if (nameController.text.isNotEmpty) {
-                    setState(() {
-                      piles.add(CompostPile(
-                        id: DateTime.now().millisecondsSinceEpoch.toString(),
-                        name: nameController.text,
-                        category: categoryController.text.isEmpty ? 'General Organic Waste' : categoryController.text,
-                        status: StatusLevel.onTrack,
-                        temp: 55.0,
-                        moisture: 55.0,
-                        ph: 7.0,
-                        startDate: DateTime.now(),
-                        history: [DayReading(day: 1, dateStr: 'Today', temp: 55, moisture: 55, ph: 7.0)],
-                      ));
-                    });
-                    Navigator.pop(context);
+                    final user = Supabase.instance.client.auth.currentUser;
+                    if (user != null) {
+                      try {
+                        final inserted = await Supabase.instance.client.from('compost_piles').insert({
+                          'user_id': user.id,
+                          'name': nameController.text.trim(),
+                          'category': categoryController.text.isEmpty ? 'General Organic Waste' : categoryController.text.trim(),
+                          'target_total_days': 30,
+                          'is_archived': false,
+                        }).select().single();
+
+                        final newPileId = inserted['id'].toString();
+
+                        await Supabase.instance.client.from('day_readings').insert({
+                          'pile_id': newPileId,
+                          'day_number': 1,
+                          'temp': 55.0,
+                          'moisture': 55.0,
+                          'ph': 7.0,
+                        });
+
+                        await _fetchCompostPilesAndReadings();
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Failed to add pile: ${e.toString()}'), backgroundColor: Colors.red),
+                          );
+                        }
+                      }
+                    }
+                    if (context.mounted) Navigator.pop(context);
                   }
                 },
                 child: const Text('Create Pile', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -1175,13 +1332,19 @@ class _MainNavigationState extends State<MainNavigation> {
     final List<Widget> screens = [
       HomeScreen(
         piles: activePiles,
-        onPileUpdated: () => setState(() {}),
+        isLoading: _isLoadingPiles,
+        onRefresh: _fetchCompostPilesAndReadings,
+        onPileUpdated: () => _fetchCompostPilesAndReadings(silent: true),
         onOpenDetail: (pile) {
           Navigator.push(context, MaterialPageRoute(builder: (context) => PileDetailScreen(pile: pile)));
         },
       ),
-      PilesTabScreen(piles: activePiles),
-      const TrendsScreen(),
+      PilesTabScreen(
+        piles: activePiles,
+        isLoading: _isLoadingPiles,
+        onRefresh: _fetchCompostPilesAndReadings,
+      ),
+      TrendsScreen(piles: piles),
       AlertsScreen(alerts: alertsList),
       ArchivesScreen(archivedPiles: archivedPiles, activePiles: activePiles),
       const SettingsScreen(),
@@ -1244,17 +1407,25 @@ class _MainNavigationState extends State<MainNavigation> {
 // ==========================================
 class HomeScreen extends StatelessWidget {
   final List<CompostPile> piles;
+  final bool isLoading;
+  final Future<void> Function() onRefresh;
   final VoidCallback onPileUpdated;
   final Function(CompostPile) onOpenDetail;
 
   const HomeScreen({
     super.key,
     required this.piles,
+    this.isLoading = false,
+    required this.onRefresh,
     required this.onPileUpdated,
     required this.onOpenDetail,
   });
 
   void _showAdjustParametersModal(BuildContext context, CompostPile pile) {
+    double currentTemp = pile.temp ?? 55.0;
+    double currentMoisture = pile.moisture ?? 55.0;
+    double currentPh = pile.ph ?? 7.0;
+
     showModalBottomSheet(
       context: context,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
@@ -1284,18 +1455,20 @@ class HomeScreen extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Temperature: ${pile.temp.round()}°C', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                      Text(pile.temp < 40 ? "Low" : pile.temp > 68 ? "Critical High" : "Optimal", style: TextStyle(color: pile.temp < 40 || pile.temp > 68 ? Colors.red : Colors.green, fontSize: 12)),
+                      Text('Temperature: ${currentTemp.round()}°C', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                      Text(currentTemp < 40 ? "Low" : currentTemp > 68 ? "Critical High" : "Optimal", style: TextStyle(color: currentTemp < 40 || currentTemp > 68 ? Colors.red : Colors.green, fontSize: 12)),
                     ],
                   ),
                   Slider(
-                    value: pile.temp,
+                    value: currentTemp,
                     min: 20,
                     max: 80,
                     activeColor: const Color(0xFF1B3B2B),
                     onChanged: (v) {
-                      setModalState(() => pile.temp = v);
-                      onPileUpdated();
+                      setModalState(() {
+                        currentTemp = v;
+                        pile.temp = v;
+                      });
                     },
                   ),
 
@@ -1303,18 +1476,20 @@ class HomeScreen extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('Moisture: ${pile.moisture.round()}%', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                      Text(pile.moisture < 40 ? "Dry" : pile.moisture > 70 ? "Soggy" : "Optimal", style: TextStyle(color: pile.moisture < 40 || pile.moisture > 70 ? Colors.orange : Colors.green, fontSize: 12)),
+                      Text('Moisture: ${currentMoisture.round()}%', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                      Text(currentMoisture < 40 ? "Dry" : currentMoisture > 70 ? "Soggy" : "Optimal", style: TextStyle(color: currentMoisture < 40 || currentMoisture > 70 ? Colors.orange : Colors.green, fontSize: 12)),
                     ],
                   ),
                   Slider(
-                    value: pile.moisture,
+                    value: currentMoisture,
                     min: 10,
                     max: 90,
                     activeColor: const Color(0xFF1B3B2B),
                     onChanged: (v) {
-                      setModalState(() => pile.moisture = v);
-                      onPileUpdated();
+                      setModalState(() {
+                        currentMoisture = v;
+                        pile.moisture = v;
+                      });
                     },
                   ),
 
@@ -1322,27 +1497,41 @@ class HomeScreen extends StatelessWidget {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text('pH Level: ${pile.ph.toStringAsFixed(1)}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                      Text(pile.ph < 6.0 ? "Acidic" : pile.ph > 8.0 ? "Alkaline" : "Balanced", style: TextStyle(color: pile.ph < 6.0 || pile.ph > 8.0 ? Colors.orange : Colors.green, fontSize: 12)),
+                      Text('pH Level: ${currentPh.toStringAsFixed(1)}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                      Text(currentPh < 6.0 ? "Acidic" : currentPh > 8.0 ? "Alkaline" : "Balanced", style: TextStyle(color: currentPh < 6.0 || currentPh > 8.0 ? Colors.orange : Colors.green, fontSize: 12)),
                     ],
                   ),
                   Slider(
-                    value: pile.ph,
+                    value: currentPh,
                     min: 4.0,
                     max: 10.0,
                     divisions: 60,
                     activeColor: const Color(0xFF1B3B2B),
                     onChanged: (v) {
-                      setModalState(() => pile.ph = double.parse(v.toStringAsFixed(1)));
-                      onPileUpdated();
+                      setModalState(() {
+                        currentPh = double.parse(v.toStringAsFixed(1));
+                        pile.ph = currentPh;
+                      });
                     },
                   ),
 
                   const SizedBox(height: 12),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1B3B2B), minimumSize: const Size(double.infinity, 44)),
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Close', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    onPressed: () async {
+                      try {
+                        await Supabase.instance.client.from('day_readings').insert({
+                          'pile_id': pile.id,
+                          'day_number': pile.history.length + 1,
+                          'temp': currentTemp,
+                          'moisture': currentMoisture,
+                          'ph': currentPh,
+                        });
+                        onPileUpdated();
+                      } catch (_) {}
+                      if (context.mounted) Navigator.pop(context);
+                    },
+                    child: const Text('Save Telemetry Reading', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   )
                 ],
               ),
@@ -1373,72 +1562,98 @@ class HomeScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFFF2F4F5),
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: double.infinity,
-                color: const Color(0xFF1B3B2B),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(getRealtimeGreeting(displayName), style: const TextStyle(fontFamily: 'Serif', color: Colors.white, fontSize: 22)),
-                    const SizedBox(height: 2),
-                    Text('${piles.length} active piles monitored - Ndola, CB', style: const TextStyle(color: Color(0xFF81E6D9), fontSize: 13)),
-                  ],
+        child: RefreshIndicator(
+          onRefresh: onRefresh,
+          color: const Color(0xFF1B3B2B),
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: double.infinity,
+                  color: const Color(0xFF1B3B2B),
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(getRealtimeGreeting(displayName), style: const TextStyle(fontFamily: 'Serif', color: Colors.white, fontSize: 22)),
+                      const SizedBox(height: 2),
+                      Text('${piles.length} active piles monitored - Ndola, CB', style: const TextStyle(color: Color(0xFF81E6D9), fontSize: 13)),
+                    ],
+                  ),
                 ),
-              ),
 
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(color: const Color(0xFF1B3B2B), borderRadius: BorderRadius.circular(12)),
+                Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(color: const Color(0xFF1B3B2B), borderRadius: BorderRadius.circular(12)),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Active piles', style: TextStyle(color: Color(0xFF81E6D9), fontSize: 13)),
+                                  const SizedBox(height: 4),
+                                  Text('${piles.length}', style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(color: const Color(0xFFFEF3C7), borderRadius: BorderRadius.circular(12)),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Needs attention', style: TextStyle(color: Color(0xFF92400E), fontSize: 13)),
+                                  const SizedBox(height: 4),
+                                  Text('$needsAttentionCount', style: const TextStyle(color: Color(0xFF92400E), fontSize: 26, fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+
+                      const SizedBox(height: 20),
+                      const Text('YOUR COMPOST PILES', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF4A5568))),
+                      const SizedBox(height: 12),
+
+                      if (isLoading)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 40.0),
+                          child: Center(child: CircularProgressIndicator(color: Color(0xFF1B3B2B))),
+                        )
+                      else if (piles.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 40.0),
+                          child: Center(
                             child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Active piles', style: TextStyle(color: Color(0xFF81E6D9), fontSize: 13)),
-                                const SizedBox(height: 4),
-                                Text('${piles.length}', style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
+                                const Icon(Icons.eco_outlined, size: 64, color: Color(0xFF1B3B2B)),
+                                const SizedBox(height: 16),
+                                const Text('No active compost piles', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1B3B2B))),
+                                const SizedBox(height: 6),
+                                Text('Tap the + button below to add your first compost pile.', style: TextStyle(color: Colors.grey.shade700, fontSize: 13)),
                               ],
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(color: const Color(0xFFFEF3C7), borderRadius: BorderRadius.circular(12)),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Needs attention', style: TextStyle(color: Color(0xFF92400E), fontSize: 13)),
-                                const SizedBox(height: 4),
-                                Text('$needsAttentionCount', style: const TextStyle(color: Color(0xFF92400E), fontSize: 26, fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 20),
-                    const Text('YOUR COMPOST PILES', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF4A5568))),
-                    const SizedBox(height: 12),
-
-                    ...piles.map((pile) => _buildPileCard(context, pile)),
-                  ],
+                        )
+                      else
+                        ...piles.map((pile) => _buildPileCard(context, pile)),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -1546,11 +1761,11 @@ class HomeScreen extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  _buildParameterRow('Temp', '${pile.temp.round()}°C', pile.temp / 80.0, metricColor),
+                  _buildParameterRow('Temp', pile.tempDisplay, (pile.temp ?? 0) / 80.0, metricColor),
                   const SizedBox(height: 6),
-                  _buildParameterRow('Moisture', '${pile.moisture.round()}%', pile.moisture / 100.0, metricColor),
+                  _buildParameterRow('Moisture', pile.moistureDisplay, (pile.moisture ?? 0) / 100.0, metricColor),
                   const SizedBox(height: 6),
-                  _buildParameterRow('pH', '${pile.ph}', pile.ph / 14.0, metricColor),
+                  _buildParameterRow('pH', pile.phDisplay, (pile.ph ?? 0) / 14.0, metricColor),
                 ],
               ),
             ),
@@ -1570,7 +1785,7 @@ class HomeScreen extends StatelessWidget {
             child: LinearProgressIndicator(value: progress.clamp(0.0, 1.0), backgroundColor: const Color(0xFFE2E8F0), color: color, minHeight: 8),
           ),
         ),
-        SizedBox(width: 50, child: Text(value, textAlign: TextAlign.right, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: color))),
+        SizedBox(width: 85, child: Text(value, textAlign: TextAlign.right, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color))),
       ],
     );
   }
@@ -1667,17 +1882,17 @@ Future<File> generateSinglePilePdfReport(CompostPile pile) async {
                 pw.Column(children: [
                   pw.Text('Temperature', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
                   pw.SizedBox(height: 2),
-                  pw.Text('${pile.temp.round()}°C', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                  pw.Text(pile.tempDisplay, style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
                 ]),
                 pw.Column(children: [
                   pw.Text('Moisture Level', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
                   pw.SizedBox(height: 2),
-                  pw.Text('${pile.moisture.round()}%', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                  pw.Text(pile.moistureDisplay, style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
                 ]),
                 pw.Column(children: [
                   pw.Text('pH Balance', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
                   pw.SizedBox(height: 2),
-                  pw.Text('${pile.ph}', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+                  pw.Text(pile.phDisplay, style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
                 ]),
                 pw.Column(children: [
                   pw.Text('Current Stage', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700)),
@@ -1702,15 +1917,15 @@ Future<File> generateSinglePilePdfReport(CompostPile pile) async {
               cellStyle: const pw.TextStyle(fontSize: 8),
               headers: ['Date Logged', 'Timeline', 'Temp (°C)', 'Moisture (%)', 'pH Level', 'Thermal Evaluation'],
               data: pile.history.map((reading) {
-                String tempEval = (reading.temp >= 50 && reading.temp <= 65)
+                String tempEval = (reading.temp != null && reading.temp! >= 50 && reading.temp! <= 65)
                     ? 'Optimal Active'
-                    : (reading.temp < 40 ? 'Low Activity' : 'Critical High');
+                    : (reading.temp == null ? 'Not available' : reading.temp! < 40 ? 'Low Activity' : 'Critical High');
                 return [
                   reading.dateStr,
                   'Day ${reading.day}',
-                  '${reading.temp.round()}°C',
-                  '${reading.moisture.round()}%',
-                  '${reading.ph}',
+                  reading.tempDisplay,
+                  reading.moistureDisplay,
+                  reading.phDisplay,
                   tempEval,
                 ];
               }).toList(),
@@ -1809,9 +2024,9 @@ class PileDetailScreen extends StatelessWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceAround,
                       children: [
-                        _buildMetricTile('Temperature', '${pile.temp.round()}°C', Icons.thermostat),
-                        _buildMetricTile('Moisture', '${pile.moisture.round()}%', Icons.water_drop),
-                        _buildMetricTile('pH Level', '${pile.ph}', Icons.science),
+                        _buildMetricTile('Temperature', pile.tempDisplay, Icons.thermostat),
+                        _buildMetricTile('Moisture', pile.moistureDisplay, Icons.water_drop),
+                        _buildMetricTile('pH Level', pile.phDisplay, Icons.science),
                       ],
                     ),
                   ],
@@ -1841,7 +2056,7 @@ class PileDetailScreen extends StatelessWidget {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text('${reading.dateStr} (Day ${reading.day})', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-                            Text('Temp: ${reading.temp.round()}°C  |  Moisture: ${reading.moisture.round()}%  |  pH: ${reading.ph}', style: const TextStyle(fontSize: 11, color: Colors.black87)),
+                            Text('Temp: ${reading.tempDisplay}  |  Moisture: ${reading.moistureDisplay}  |  pH: ${reading.phDisplay}', style: const TextStyle(fontSize: 11, color: Colors.black87)),
                           ],
                         ),
                       )),
@@ -1907,8 +2122,15 @@ class PileDetailScreen extends StatelessWidget {
 // ==========================================
 class PilesTabScreen extends StatelessWidget {
   final List<CompostPile> piles;
+  final bool isLoading;
+  final Future<void> Function() onRefresh;
 
-  const PilesTabScreen({super.key, required this.piles});
+  const PilesTabScreen({
+    super.key,
+    required this.piles,
+    this.isLoading = false,
+    required this.onRefresh,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1917,29 +2139,53 @@ class PilesTabScreen extends StatelessWidget {
         backgroundColor: const Color(0xFF1B3B2B),
         title: const Text('Active Piles', style: TextStyle(color: Colors.white, fontSize: 18)),
       ),
-      body: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: piles.length,
-        itemBuilder: (context, index) {
-          final pile = piles[index];
-          return Card(
-            margin: const EdgeInsets.only(bottom: 12),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              leading: const CircleAvatar(
-                backgroundColor: Color(0xFF1B3B2B),
-                child: Icon(Icons.eco, color: Colors.white),
-              ),
-              title: Text(pile.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-              subtitle: Text('Category: ${pile.category} • Readiness: ${pile.readinessPercent.round()}%', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
-              trailing: const Icon(Icons.chevron_right, color: Colors.grey),
-              onTap: () {
-                Navigator.push(context, MaterialPageRoute(builder: (context) => PileDetailScreen(pile: pile)));
-              },
-            ),
-          );
-        },
+      body: RefreshIndicator(
+        onRefresh: onRefresh,
+        color: const Color(0xFF1B3B2B),
+        child: isLoading
+            ? const Center(child: CircularProgressIndicator(color: Color(0xFF1B3B2B)))
+            : piles.isEmpty
+                ? Center(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(Icons.eco_outlined, size: 64, color: Color(0xFF1B3B2B)),
+                            const SizedBox(height: 16),
+                            const Text('No active compost piles', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1B3B2B))),
+                            const SizedBox(height: 6),
+                            Text('Tap + below to add a compost pile.', style: TextStyle(color: Colors.grey.shade700, fontSize: 13)),
+                          ],
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: piles.length,
+                    itemBuilder: (context, index) {
+                      final pile = piles[index];
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          leading: const CircleAvatar(
+                            backgroundColor: Color(0xFF1B3B2B),
+                            child: Icon(Icons.eco, color: Colors.white),
+                          ),
+                          title: Text(pile.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                          subtitle: Text('Category: ${pile.category} • Readiness: ${pile.readinessPercent.round()}%', style: TextStyle(fontSize: 12, color: Colors.grey.shade700)),
+                          trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                          onTap: () {
+                            Navigator.push(context, MaterialPageRoute(builder: (context) => PileDetailScreen(pile: pile)));
+                          },
+                        ),
+                      );
+                    },
+                  ),
       ),
     );
   }
@@ -1949,10 +2195,46 @@ class PilesTabScreen extends StatelessWidget {
 // 8. TRENDS TAB SCREEN
 // ==========================================
 class TrendsScreen extends StatelessWidget {
-  const TrendsScreen({super.key});
+  final List<CompostPile> piles;
+
+  const TrendsScreen({super.key, required this.piles});
 
   @override
   Widget build(BuildContext context) {
+    List<double> validTemps = [];
+    List<double> validMoistures = [];
+    List<double> validPhs = [];
+
+    for (var pile in piles) {
+      if (pile.temp != null) validTemps.add(pile.temp!);
+      if (pile.moisture != null) validMoistures.add(pile.moisture!);
+      if (pile.ph != null) validPhs.add(pile.ph!);
+
+      for (var reading in pile.history) {
+        if (reading.temp != null) validTemps.add(reading.temp!);
+        if (reading.moisture != null) validMoistures.add(reading.moisture!);
+        if (reading.ph != null) validPhs.add(reading.ph!);
+      }
+    }
+
+    String formatAvg(List<double> vals, String suffix) {
+      if (vals.isEmpty) return 'Not available';
+      double sum = vals.reduce((a, b) => a + b);
+      return '${(sum / vals.length).round()}$suffix';
+    }
+
+    String formatMin(List<double> vals, String suffix) {
+      if (vals.isEmpty) return 'Min: -';
+      double minV = vals.reduce((a, b) => a < b ? a : b);
+      return 'Min ${minV.round()}$suffix';
+    }
+
+    String formatMax(List<double> vals, String suffix) {
+      if (vals.isEmpty) return 'Max: -';
+      double maxV = vals.reduce((a, b) => a > b ? a : b);
+      return 'Max ${maxV.round()}$suffix';
+    }
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: const Color(0xFF1B3B2B),
@@ -1961,9 +2243,9 @@ class TrendsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          _buildTrendCard('Temperature', '63°C avg', 'Min 52°C', 'Max 67°C', 'Trend: Optimal', Colors.green),
-          _buildTrendCard('Moisture', '55% avg', 'Min 51%', 'Max 68%', 'Trend: Stable', Colors.green),
-          _buildTrendCard('pH level', '7.2 avg', 'Min 6.2', 'Max 7.4', 'Trend: Rising', Colors.green),
+          _buildTrendCard('Temperature', formatAvg(validTemps, '°C avg'), formatMin(validTemps, '°C'), formatMax(validTemps, '°C'), 'Trend: Optimal', Colors.green),
+          _buildTrendCard('Moisture', formatAvg(validMoistures, '% avg'), formatMin(validMoistures, '%'), formatMax(validMoistures, '%'), 'Trend: Stable', Colors.green),
+          _buildTrendCard('pH level', formatAvg(validPhs, ' avg'), formatMin(validPhs, ''), formatMax(validPhs, ''), 'Trend: Rising', Colors.green),
         ],
       ),
     );
@@ -2192,9 +2474,9 @@ class ArchivesScreen extends StatelessWidget {
                         child: pw.Row(
                           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                           children: [
-                            pw.Text('Temperature: ${pile.temp.round()}°C', style: const pw.TextStyle(fontSize: 9)),
-                            pw.Text('Moisture: ${pile.moisture.round()}%', style: const pw.TextStyle(fontSize: 9)),
-                            pw.Text('pH Level: ${pile.ph}', style: const pw.TextStyle(fontSize: 9)),
+                            pw.Text('Temperature: ${pile.tempDisplay}', style: const pw.TextStyle(fontSize: 9)),
+                            pw.Text('Moisture: ${pile.moistureDisplay}', style: const pw.TextStyle(fontSize: 9)),
+                            pw.Text('pH Level: ${pile.phDisplay}', style: const pw.TextStyle(fontSize: 9)),
                             pw.Text('Stage: ${pile.currentStage.name.toUpperCase()}', style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
                           ],
                         ),
@@ -2214,15 +2496,15 @@ class ArchivesScreen extends StatelessWidget {
                           cellStyle: const pw.TextStyle(fontSize: 8),
                           headers: ['Date Logged', 'Timeline', 'Temp (°C)', 'Moisture (%)', 'pH', 'Thermal Evaluation'],
                           data: pile.history.map((reading) {
-                            String tempEval = (reading.temp >= 50 && reading.temp <= 65)
+                            String tempEval = (reading.temp != null && reading.temp! >= 50 && reading.temp! <= 65)
                                 ? 'Optimal Active'
-                                : (reading.temp < 40 ? 'Low Activity' : 'Critical High');
+                                : (reading.temp == null ? 'Not available' : reading.temp! < 40 ? 'Low Activity' : 'Critical High');
                             return [
                               reading.dateStr,
                               'Day ${reading.day}',
-                              '${reading.temp.round()}°C',
-                              '${reading.moisture.round()}%',
-                              '${reading.ph}',
+                              reading.tempDisplay,
+                              reading.moistureDisplay,
+                              reading.phDisplay,
                               tempEval,
                             ];
                           }).toList(),
