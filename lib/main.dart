@@ -3,6 +3,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -1047,6 +1048,7 @@ class _MainNavigationState extends State<MainNavigation> {
   bool _hasUnreadAlerts = true;
   bool _isLoadingPiles = true;
   String? _errorMessage;
+  String? _selectedPileUuid;
   RealtimeChannel? _realtimeChannel;
 
   List<CompostAlert> alertsList = [
@@ -1121,11 +1123,12 @@ class _MainNavigationState extends State<MainNavigation> {
         setState(() {
           _isLoadingPiles = false;
           piles = [];
+          _selectedPileUuid = null;
         });
         return;
       }
 
-      // Query compost_piles belonging to authenticated user
+      // Query compost_piles belonging strictly to the authenticated user
       final dynamic pileRows = await Supabase.instance.client
           .from('compost_piles')
           .select()
@@ -1139,7 +1142,7 @@ class _MainNavigationState extends State<MainNavigation> {
           final pileMap = Map<String, dynamic>.from(pMap as Map);
           final pileId = pileMap['id'].toString();
 
-          // Query day_readings for this pile UUID
+          // Query day_readings strictly using pile_id = pileId UUID
           final dynamic readingRows = await Supabase.instance.client
               .from('day_readings')
               .select()
@@ -1155,14 +1158,30 @@ class _MainNavigationState extends State<MainNavigation> {
 
           fetchedPiles.add(CompostPile.fromMap(pileMap, historyReadings: history));
         }
+      }
+
+      // Restore and validate locally saved selected pile UUID
+      final prefs = await SharedPreferences.getInstance();
+      final savedUuid = prefs.getString('selected_compost_pile_uuid');
+
+      String? validatedUuid;
+      if (fetchedPiles.isNotEmpty) {
+        bool isValid = savedUuid != null && fetchedPiles.any((p) => p.id == savedUuid);
+        if (isValid) {
+          validatedUuid = savedUuid;
+        } else {
+          validatedUuid = fetchedPiles.first.id;
+          await prefs.setString('selected_compost_pile_uuid', validatedUuid);
+        }
       } else {
-        // Auto-seed initial default piles for new user
-        fetchedPiles = await _seedInitialPilesForUser(userId);
+        validatedUuid = null;
+        await prefs.remove('selected_compost_pile_uuid');
       }
 
       if (mounted) {
         setState(() {
           piles = fetchedPiles;
+          _selectedPileUuid = validatedUuid;
           _isLoadingPiles = false;
         });
       }
@@ -1176,27 +1195,15 @@ class _MainNavigationState extends State<MainNavigation> {
     }
   }
 
-  Future<List<CompostPile>> _seedInitialPilesForUser(String userId) async {
-    List<CompostPile> seededPiles = [];
+  Future<void> _setSelectedPile(CompostPile pile) async {
+    setState(() {
+      _selectedPileUuid = pile.id;
+    });
     try {
-      final defaultSeedData = [
-        {
-          'user_id': userId,
-          'name': 'Pile A — Maize stalks',
-          'category': 'Maize stalks',
-          'target_total_days': 30,
-          'is_archived': false,
-        },
-        {
-          'user_id': userId,
-          'name': 'Pile B — Kitchen waste',
-          'category': 'Kitchen waste',
-          'target_total_days': 20,
-          'is_archived': false,
-        },
-      ];
-
-      for (var seed in defaultSeedData) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('selected_compost_pile_uuid', pile.id);
+    } catch (_) {}
+  }
         final inserted = await Supabase.instance.client
             .from('compost_piles')
             .insert(seed)
