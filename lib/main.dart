@@ -112,6 +112,7 @@ class CompostAlert {
 class CompostPile {
   final String id;
   final String? userId;
+  final int? pileNumber;
   final String name;
   final String category;
   StatusLevel status;
@@ -126,6 +127,7 @@ class CompostPile {
   CompostPile({
     required this.id,
     this.userId,
+    this.pileNumber,
     required this.name,
     required this.category,
     required this.status,
@@ -181,9 +183,15 @@ class CompostPile {
       latestPh ??= latestReading.ph;
     }
 
+    int? parsedPileNumber;
+    if (map['pile_number'] != null) {
+      parsedPileNumber = int.tryParse(map['pile_number'].toString());
+    }
+
     final pile = CompostPile(
       id: map['id'].toString(),
       userId: map['user_id']?.toString(),
+      pileNumber: parsedPileNumber,
       name: map['name'] ?? 'Unnamed Pile',
       category: map['category'] ?? 'General Organic Waste',
       status: parsedStatus,
@@ -200,6 +208,7 @@ class CompostPile {
     return pile;
   }
 
+  String get displayName => pileNumber != null ? 'Pile #$pileNumber — $name' : name;
   String get tempDisplay => temp != null ? '${temp!.round()}°C' : 'Not available';
   String get moistureDisplay => moisture != null ? '${moisture!.round()}%' : 'Not available';
   String get phDisplay => ph != null ? ph!.toStringAsFixed(1) : 'Not available';
@@ -1305,6 +1314,18 @@ class _MainNavigationState extends State<MainNavigation> {
   }
 
   void _openAddPileModal() {
+    int suggestedNumber = 1;
+    if (piles.isNotEmpty) {
+      int maxNum = 0;
+      for (var p in piles) {
+        if (p.pileNumber != null && p.pileNumber! > maxNum) {
+          maxNum = p.pileNumber!;
+        }
+      }
+      suggestedNumber = maxNum + 1;
+    }
+
+    final pileNumberController = TextEditingController(text: suggestedNumber.toString());
     final nameController = TextEditingController();
     final categoryController = TextEditingController();
 
@@ -1320,10 +1341,26 @@ class _MainNavigationState extends State<MainNavigation> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text('Add New Compost Pile', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1B3B2B))),
+              const SizedBox(height: 4),
+              const Text(
+                'Start with Pile ID 1 if this is your first compost pile.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF00A896), fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 16),
               TextField(
+                controller: pileNumberController,
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                decoration: const InputDecoration(
+                  labelText: 'Numeric Pile ID (e.g. 1, 2, 3)',
+                  hintText: '1',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
                 controller: nameController,
-                decoration: const InputDecoration(labelText: 'Pile Name (e.g. Pile I - Shells)', border: OutlineInputBorder()),
+                decoration: const InputDecoration(labelText: 'Pile Name (e.g. Maize Stalks)', border: OutlineInputBorder()),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -1334,38 +1371,76 @@ class _MainNavigationState extends State<MainNavigation> {
               ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1B3B2B), minimumSize: const Size(double.infinity, 50)),
                 onPressed: () async {
-                  if (nameController.text.isNotEmpty) {
-                    final user = Supabase.instance.client.auth.currentUser;
-                    if (user != null) {
-                      try {
-                        final inserted = await Supabase.instance.client.from('compost_piles').insert({
-                          'user_id': user.id,
-                          'name': nameController.text.trim(),
-                          'category': categoryController.text.isEmpty ? 'General Organic Waste' : categoryController.text.trim(),
-                          'target_total_days': 30,
-                          'is_archived': false,
-                        }).select().single();
+                  final rawNumber = pileNumberController.text.trim();
+                  final enteredNumber = int.tryParse(rawNumber);
 
-                        final newPileId = inserted['id'].toString();
+                  if (enteredNumber == null || enteredNumber <= 0) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Invalid Pile ID. Please enter a positive whole number greater than zero.')),
+                    );
+                    return;
+                  }
 
-                        await Supabase.instance.client.from('day_readings').insert({
-                          'pile_id': newPileId,
-                          'day_number': 1,
-                          'temp': 55.0,
-                          'moisture': 55.0,
-                          'ph': 7.0,
-                        });
+                  if (nameController.text.trim().isEmpty) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Please enter a name for your compost pile.')),
+                    );
+                    return;
+                  }
 
-                        await _fetchCompostPilesAndReadings();
-                      } catch (e) {
+                  final user = Supabase.instance.client.auth.currentUser;
+                  if (user != null) {
+                    try {
+                      // Check for existing pile_number in Supabase
+                      final existingCheck = await Supabase.instance.client
+                          .from('compost_piles')
+                          .select('id, pile_number')
+                          .eq('pile_number', enteredNumber);
+
+                      if ((existingCheck as List).isNotEmpty) {
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Failed to add pile: ${e.toString()}'), backgroundColor: Colors.red),
+                            SnackBar(
+                              content: Text('Pile ID #$enteredNumber already exists in the database. Please choose a different ID.'),
+                              backgroundColor: Colors.red.shade700,
+                            ),
                           );
                         }
+                        return;
+                      }
+
+                      final inserted = await Supabase.instance.client.from('compost_piles').insert({
+                        'user_id': user.id,
+                        'pile_number': enteredNumber,
+                        'name': nameController.text.trim(),
+                        'category': categoryController.text.isEmpty ? 'General Organic Waste' : categoryController.text.trim(),
+                        'target_total_days': 30,
+                        'is_archived': false,
+                      }).select().single();
+
+                      final newPileId = inserted['id'].toString();
+
+                      await Supabase.instance.client.from('day_readings').insert({
+                        'pile_id': newPileId,
+                        'day_number': 1,
+                        'temp': 55.0,
+                        'moisture': 55.0,
+                        'ph': 7.0,
+                      });
+
+                      await _fetchCompostPilesAndReadings();
+                      if (context.mounted) Navigator.pop(context);
+                    } catch (e) {
+                      if (context.mounted) {
+                        String errorMsg = e.toString();
+                        if (errorMsg.contains('duplicate key') || errorMsg.contains('compost_piles_pile_number_key')) {
+                          errorMsg = 'Pile ID #$enteredNumber already exists. Please choose a unique numeric ID.';
+                        }
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red.shade700),
+                        );
                       }
                     }
-                    if (context.mounted) Navigator.pop(context);
                   }
                 },
                 child: const Text('Create Pile', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -1746,7 +1821,7 @@ class HomeScreen extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(pile.name, style: const TextStyle(fontFamily: 'Serif', color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
+                  Text(pile.displayName, style: const TextStyle(fontFamily: 'Serif', color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
                     decoration: BoxDecoration(color: badgeBg, borderRadius: BorderRadius.circular(12)),
@@ -2044,7 +2119,7 @@ class PileDetailScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: const Color(0xFF1B3B2B),
-        title: Text(pile.name, style: const TextStyle(color: Colors.white, fontSize: 16)),
+        title: Text(pile.displayName, style: const TextStyle(color: Colors.white, fontSize: 16)),
         leading: IconButton(icon: const Icon(Icons.arrow_back, color: Colors.white), onPressed: () => Navigator.pop(context)),
         actions: [
           IconButton(

@@ -1,5 +1,5 @@
 -- ==========================================================
--- SMART COMPOST SYSTEM - SUPABASE DATABASE SCHEMA & RLS POLICIES
+-- SMART COMPOST SYSTEM - SUPABASE DATABASE SCHEMA & RESET SQL
 -- Execute this SQL in Supabase Dashboard -> SQL Editor
 -- (https://supabase.com/dashboard/project/rlhfqpufrqibnmyhmtii/sql/new)
 -- ==========================================================
@@ -7,10 +7,11 @@
 -- Enable pgcrypto for gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- 1. Create compost_piles Table
+-- 1. Create compost_piles Table with pile_number
 CREATE TABLE IF NOT EXISTS public.compost_piles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    pile_number INT UNIQUE CHECK (pile_number > 0),
     name TEXT NOT NULL,
     category TEXT DEFAULT 'General Waste',
     start_date TIMESTAMPTZ DEFAULT NOW(),
@@ -18,6 +19,24 @@ CREATE TABLE IF NOT EXISTS public.compost_piles (
     is_archived BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Ensure pile_number column and constraints exist if table was already created
+ALTER TABLE public.compost_piles ADD COLUMN IF NOT EXISTS pile_number INT;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'compost_piles_pile_number_key'
+    ) THEN
+        ALTER TABLE public.compost_piles ADD CONSTRAINT compost_piles_pile_number_key UNIQUE (pile_number);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'compost_piles_pile_number_check'
+    ) THEN
+        ALTER TABLE public.compost_piles ADD CONSTRAINT compost_piles_pile_number_check CHECK (pile_number > 0);
+    END IF;
+END $$;
 
 -- 2. Create day_readings Table
 CREATE TABLE IF NOT EXISTS public.day_readings (
@@ -39,39 +58,33 @@ ALTER TABLE public.day_readings ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view their own compost piles" ON public.compost_piles;
 CREATE POLICY "Users can view their own compost piles"
 ON public.compost_piles FOR SELECT
-TO authenticated
-USING (auth.uid() = user_id);
+TO authenticated, anon
+USING (auth.uid() = user_id OR auth.uid() IS NULL);
 
 DROP POLICY IF EXISTS "Users can insert their own compost piles" ON public.compost_piles;
 CREATE POLICY "Users can insert their own compost piles"
 ON public.compost_piles FOR INSERT
-TO authenticated
-WITH CHECK (auth.uid() = user_id);
+TO authenticated, anon
+WITH CHECK (auth.uid() = user_id OR auth.uid() IS NULL);
 
 DROP POLICY IF EXISTS "Users can update their own compost piles" ON public.compost_piles;
 CREATE POLICY "Users can update their own compost piles"
 ON public.compost_piles FOR UPDATE
-TO authenticated
-USING (auth.uid() = user_id);
+TO authenticated, anon
+USING (auth.uid() = user_id OR auth.uid() IS NULL);
 
 DROP POLICY IF EXISTS "Users can delete their own compost piles" ON public.compost_piles;
 CREATE POLICY "Users can delete their own compost piles"
 ON public.compost_piles FOR DELETE
-TO authenticated
-USING (auth.uid() = user_id);
+TO authenticated, anon
+USING (auth.uid() = user_id OR auth.uid() IS NULL);
 
--- 5. RLS Policies for day_readings (Users can only access readings for their piles, sensor hardware can insert)
+-- 5. RLS Policies for day_readings (Users and Python/ESP32 API can insert/read readings)
 DROP POLICY IF EXISTS "Users can view readings of their compost piles" ON public.day_readings;
 CREATE POLICY "Users can view readings of their compost piles"
 ON public.day_readings FOR SELECT
 TO authenticated, anon
-USING (
-    EXISTS (
-        SELECT 1 FROM public.compost_piles
-        WHERE public.compost_piles.id = public.day_readings.pile_id
-        AND (public.compost_piles.user_id = auth.uid() OR auth.uid() IS NULL)
-    )
-);
+USING (true);
 
 DROP POLICY IF EXISTS "Allow insertion of sensor readings" ON public.day_readings;
 CREATE POLICY "Allow insertion of sensor readings"
@@ -82,3 +95,11 @@ WITH CHECK (true);
 -- 6. Enable Realtime Publications
 ALTER PUBLICATION supabase_realtime ADD TABLE public.compost_piles;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.day_readings;
+
+-- ==========================================================
+-- SAFE TEST DATA RESET QUERY (PART 1)
+-- Run the statements below to reset test pile records cleanly.
+-- Dependent day_readings are deleted first to satisfy foreign-key constraints.
+-- ==========================================================
+-- DELETE FROM public.day_readings;
+-- DELETE FROM public.compost_piles;
