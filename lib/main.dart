@@ -7,6 +7,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+const MethodChannel _notificationChannel = MethodChannel('com.example.smart_compost_system/notifications');
 
 // Supabase Credentials
 const String supabaseUrl = 'https://rlhfqpufrqibnmyhmtii.supabase.co';
@@ -1049,6 +1052,11 @@ class _MainNavigationState extends State<MainNavigation> {
   bool _isLoadingPiles = true;
   String? _errorMessage;
   String? _selectedPileUuid;
+  String? _activeReadingPileUuid;
+  DateTime? _getReadingsStartTime;
+  DayReading? _lastReceivedReading;
+  final Set<String> _notified5DayPiles = {};
+  final Set<String> _notifiedCompletedPiles = {};
   RealtimeChannel? _realtimeChannel;
 
   List<CompostAlert> alertsList = [
@@ -1092,7 +1100,7 @@ class _MainNavigationState extends State<MainNavigation> {
             schema: 'public',
             table: 'day_readings',
             callback: (payload) {
-              _fetchCompostPilesAndReadings(silent: true);
+              _handleIncomingTelemetryPayload(Map<String, dynamic>.from(payload.newRecord));
             },
           )
           .onPostgresChanges(
@@ -1105,6 +1113,59 @@ class _MainNavigationState extends State<MainNavigation> {
           )
           .subscribe();
     } catch (_) {}
+  }
+
+  void _handleIncomingTelemetryPayload(Map<String, dynamic> recordMap) {
+    final newReading = DayReading.fromMap(recordMap);
+
+    // Fail-safe 1: Active Target Check
+    if (_activeReadingPileUuid != null && newReading.pileId == _activeReadingPileUuid) {
+      // Fail-safe 2: Timestamp Filter - Discard reading if created BEFORE "Get Readings" was tapped
+      if (newReading.createdAt != null &&
+          _getReadingsStartTime != null &&
+          newReading.createdAt!.isBefore(_getReadingsStartTime!)) {
+        return; // Discard stale reading
+      }
+
+      // Fail-safe 3: Deduplication Filter - Discard if temp, moisture, and timestamp match within 30s
+      if (_lastReceivedReading != null &&
+          _lastReceivedReading!.temp == newReading.temp &&
+          _lastReceivedReading!.moisture == newReading.moisture &&
+          _lastReceivedReading!.createdAt != null &&
+          newReading.createdAt != null &&
+          newReading.createdAt!.difference(_lastReceivedReading!.createdAt!).inSeconds.abs() < 30) {
+        return; // Discard duplicate entry
+      }
+
+      _lastReceivedReading = newReading;
+      _activeReadingPileUuid = null; // Clear active waiting assignment
+    }
+
+    _fetchCompostPilesAndReadings(silent: true);
+  }
+
+  void _handleGetReadingsClicked(CompostPile pile) {
+    setState(() {
+      _activeReadingPileUuid = pile.id;
+      _getReadingsStartTime = DateTime.now();
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Get Readings active for ${pile.name}. Waiting for incoming data...'),
+        duration: const Duration(seconds: 4),
+        backgroundColor: const Color(0xFF1B3B2B),
+      ),
+    );
+
+    // Fail-safe timer: Auto reset active assignment after 45 seconds if no reading arrives
+    Timer(const Duration(seconds: 45), () {
+      if (mounted && _activeReadingPileUuid == pile.id) {
+        setState(() {
+          _activeReadingPileUuid = null;
+        });
+      }
+    });
   }
 
   Future<void> _fetchCompostPilesAndReadings({bool silent = false}) async {
@@ -1204,53 +1265,41 @@ class _MainNavigationState extends State<MainNavigation> {
       await prefs.setString('selected_compost_pile_uuid', pile.id);
     } catch (_) {}
   }
-        final inserted = await Supabase.instance.client
-            .from('compost_piles')
-            .insert(seed)
-            .select()
-            .single();
-
-        final pileId = inserted['id'].toString();
-
-        final initialReadings = [
-          {'pile_id': pileId, 'day_number': 1, 'temp': 32.0, 'moisture': 60.0, 'ph': 6.2},
-          {'pile_id': pileId, 'day_number': 7, 'temp': 55.0, 'moisture': 58.0, 'ph': 6.5},
-          {'pile_id': pileId, 'day_number': 14, 'temp': 63.0, 'moisture': 55.0, 'ph': 7.2},
-        ];
-
-        final insertedReadings = await Supabase.instance.client
-            .from('day_readings')
-            .insert(initialReadings)
-            .select();
-
-        List<DayReading> history = (insertedReadings as List)
-            .map((r) => DayReading.fromMap(Map<String, dynamic>.from(r as Map)))
-            .toList();
-
-        seededPiles.add(CompostPile.fromMap(Map<String, dynamic>.from(inserted as Map), historyReadings: history));
-      }
-    } catch (_) {}
-    return seededPiles;
-  }
 
   void _checkAndTriggerReadinessAlerts() {
     for (var pile in piles) {
-      if (!pile.isArchived && pile.readinessPercent >= 99.5) {
-        pile.isArchived = true;
-        pile.status = StatusLevel.completed;
+      // 1. Trigger 5-Day Milestone Local Notification
+      if (pile.history.length >= 5 && !_notified5DayPiles.contains(pile.id)) {
+        _notified5DayPiles.add(pile.id);
+        try {
+          _notificationChannel.invokeMethod('show5DayMilestone', {'pileName': pile.name});
+        } catch (_) {}
+      }
 
-        // Auto add Alert
-        alertsList.insert(
-          0,
-          CompostAlert(
-            id: DateTime.now().millisecondsSinceEpoch.toString(),
-            title: '${pile.name} is READY!',
-            time: 'Just now',
-            body: 'Pile has reached 100% maturity stage. Automatically moved to Archives.',
-            color: Colors.green,
-          ),
-        );
-        _hasUnreadAlerts = true;
+      // 2. Trigger Readiness Completion Local Notification
+      if (pile.readinessPercent >= 99.5 && !_notifiedCompletedPiles.contains(pile.id)) {
+        _notifiedCompletedPiles.add(pile.id);
+        try {
+          _notificationChannel.invokeMethod('showCompletion', {'pileName': pile.name});
+        } catch (_) {}
+
+        if (!pile.isArchived) {
+          pile.isArchived = true;
+          pile.status = StatusLevel.completed;
+
+          // Auto add Alert
+          alertsList.insert(
+            0,
+            CompostAlert(
+              id: DateTime.now().millisecondsSinceEpoch.toString(),
+              title: '${pile.name} is READY!',
+              time: 'Just now',
+              body: 'Pile has reached 100% maturity stage. Automatically moved to Archives.',
+              color: Colors.green,
+            ),
+          );
+          _hasUnreadAlerts = true;
+        }
       }
     }
   }
@@ -1340,6 +1389,8 @@ class _MainNavigationState extends State<MainNavigation> {
       HomeScreen(
         piles: activePiles,
         isLoading: _isLoadingPiles,
+        activeReadingPileUuid: _activeReadingPileUuid,
+        onGetReadingsClicked: _handleGetReadingsClicked,
         onRefresh: _fetchCompostPilesAndReadings,
         onPileUpdated: () => _fetchCompostPilesAndReadings(silent: true),
         onOpenDetail: (pile) {
@@ -1415,6 +1466,8 @@ class _MainNavigationState extends State<MainNavigation> {
 class HomeScreen extends StatelessWidget {
   final List<CompostPile> piles;
   final bool isLoading;
+  final String? activeReadingPileUuid;
+  final Function(CompostPile)? onGetReadingsClicked;
   final Future<void> Function() onRefresh;
   final VoidCallback onPileUpdated;
   final Function(CompostPile) onOpenDetail;
@@ -1423,6 +1476,8 @@ class HomeScreen extends StatelessWidget {
     super.key,
     required this.piles,
     this.isLoading = false,
+    this.activeReadingPileUuid,
+    this.onGetReadingsClicked,
     required this.onRefresh,
     required this.onPileUpdated,
     required this.onOpenDetail,
@@ -1756,15 +1811,40 @@ class HomeScreen extends StatelessWidget {
                           const Text('days remaining', style: TextStyle(fontSize: 12, color: Color(0xFF2D3748))),
                         ],
                       ),
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF1B3B2B),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                        ),
-                        onPressed: () => _showAdjustParametersModal(context, pile),
-                        child: const Text('Adjust Parameters', style: TextStyle(color: Colors.white, fontSize: 12)),
-                      )
+                      Row(
+                        children: [
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: activeReadingPileUuid == pile.id ? const Color(0xFF00A896) : const Color(0xFF1B3B2B),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            ),
+                            onPressed: activeReadingPileUuid == null
+                                ? (onGetReadingsClicked != null ? () => onGetReadingsClicked!(pile) : null)
+                                : null, // Disabled for all cards while one pile is actively waiting for telemetry
+                            child: activeReadingPileUuid == pile.id
+                                ? const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      SizedBox(width: 10, height: 10, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                                      SizedBox(width: 4),
+                                      Text('Listening...', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                                    ],
+                                  )
+                                : const Text('Get Readings', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                          ),
+                          const SizedBox(width: 6),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF1B3B2B),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            ),
+                            onPressed: () => _showAdjustParametersModal(context, pile),
+                            child: const Text('Adjust', style: TextStyle(color: Colors.white, fontSize: 11)),
+                          ),
+                        ],
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),
