@@ -68,12 +68,7 @@ class CompostNotificationHelper(private val context: Context) {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
 
-        try {
-            with(NotificationManagerCompat.from(context)) {
-                notify(id, builder.build())
-            }
-        } catch (e: Throwable) {
-            // Ignore notification failure
-        }
+        NotificationManagerCompat.from(context)
+            .notify(id, builder.build())
     }
 }
