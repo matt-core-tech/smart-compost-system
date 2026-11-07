@@ -1414,55 +1414,18 @@ class _MainNavigationState extends State<MainNavigation> {
                   }
 
                   try {
-                    String newPileId;
-                    try {
-                      // Attempt atomic database transaction procedure
-                      final dynamic rpcRes = await Supabase.instance.client.rpc(
-                        'create_compost_pile_with_reservation',
-                        params: {
-                          'p_pile_number': enteredNumber,
-                          'p_name': nameController.text.trim(),
-                          'p_category': categoryController.text.isEmpty ? 'General Organic Waste' : categoryController.text.trim(),
-                          'p_target_days': 30,
-                        },
-                      );
-                      newPileId = rpcRes['id'].toString();
-                    } catch (rpcError) {
-                      // Fallback: Pre-check per-user reservation and insert directly
-                      final reservedCheck = await Supabase.instance.client
-                          .from('reserved_pile_numbers')
-                          .select('pile_number')
-                          .eq('user_id', user.id)
-                          .eq('pile_number', enteredNumber);
+                    // Call atomic database procedure exclusively (Direct INSERT policies removed)
+                    final dynamic rpcRes = await Supabase.instance.client.rpc(
+                      'create_compost_pile_with_reservation',
+                      params: {
+                        'p_pile_number': enteredNumber,
+                        'p_name': nameController.text.trim(),
+                        'p_category': categoryController.text.isEmpty ? 'General Organic Waste' : categoryController.text.trim(),
+                        'p_target_days': 30,
+                      },
+                    );
 
-                      if (reservedCheck != null && (reservedCheck as List).isNotEmpty) {
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Pile ID #$enteredNumber has already been used on your account. Please choose a different numeric ID.'),
-                              backgroundColor: Colors.red.shade700,
-                            ),
-                          );
-                        }
-                        return;
-                      }
-
-                      await Supabase.instance.client.from('reserved_pile_numbers').insert({
-                        'user_id': user.id,
-                        'pile_number': enteredNumber,
-                      });
-
-                      final inserted = await Supabase.instance.client.from('compost_piles').insert({
-                        'user_id': user.id,
-                        'pile_number': enteredNumber,
-                        'name': nameController.text.trim(),
-                        'category': categoryController.text.isEmpty ? 'General Organic Waste' : categoryController.text.trim(),
-                        'target_total_days': 30,
-                        'is_archived': false,
-                      }).select().single();
-
-                      newPileId = inserted['id'].toString();
-                    }
+                    final newPileId = rpcRes['id'].toString();
 
                     // Insert initial reading for this new pile UUID
                     await Supabase.instance.client.from('day_readings').insert({
