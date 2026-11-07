@@ -1313,21 +1313,46 @@ class _MainNavigationState extends State<MainNavigation> {
     }
   }
 
-  void _openAddPileModal() {
-    int suggestedNumber = 1;
-    if (piles.isNotEmpty) {
-      int maxNum = 0;
-      for (var p in piles) {
-        if (p.pileNumber != null && p.pileNumber! > maxNum) {
-          maxNum = p.pileNumber!;
-        }
-      }
-      suggestedNumber = maxNum + 1;
+  void _openAddPileModal() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to create a compost pile.')),
+      );
+      return;
     }
+
+    // Calculate suggested numeric ID per user based on reserved numbers
+    int suggestedNumber = 1;
+    try {
+      final reservedRows = await Supabase.instance.client
+          .from('reserved_pile_numbers')
+          .select('pile_number')
+          .eq('user_id', user.id);
+
+      if (reservedRows != null && (reservedRows as List).isNotEmpty) {
+        int maxNum = 0;
+        for (var r in (reservedRows as List)) {
+          final pNum = int.tryParse(r['pile_number'].toString()) ?? 0;
+          if (pNum > maxNum) maxNum = pNum;
+        }
+        suggestedNumber = maxNum + 1;
+      } else if (piles.isNotEmpty) {
+        int maxNum = 0;
+        for (var p in piles) {
+          if (p.pileNumber != null && p.pileNumber! > maxNum) {
+            maxNum = p.pileNumber!;
+          }
+        }
+        suggestedNumber = maxNum + 1;
+      }
+    } catch (_) {}
 
     final pileNumberController = TextEditingController(text: suggestedNumber.toString());
     final nameController = TextEditingController();
     final categoryController = TextEditingController();
+
+    if (!mounted) return;
 
     showModalBottomSheet(
       context: context,
@@ -1388,26 +1413,44 @@ class _MainNavigationState extends State<MainNavigation> {
                     return;
                   }
 
-                  final user = Supabase.instance.client.auth.currentUser;
-                  if (user != null) {
+                  try {
+                    String newPileId;
                     try {
-                      // Check for existing pile_number in Supabase
-                      final existingCheck = await Supabase.instance.client
-                          .from('compost_piles')
-                          .select('id, pile_number')
+                      // Attempt atomic database transaction procedure
+                      final dynamic rpcRes = await Supabase.instance.client.rpc(
+                        'create_compost_pile_with_reservation',
+                        params: {
+                          'p_pile_number': enteredNumber,
+                          'p_name': nameController.text.trim(),
+                          'p_category': categoryController.text.isEmpty ? 'General Organic Waste' : categoryController.text.trim(),
+                          'p_target_days': 30,
+                        },
+                      );
+                      newPileId = rpcRes['id'].toString();
+                    } catch (rpcError) {
+                      // Fallback: Pre-check per-user reservation and insert directly
+                      final reservedCheck = await Supabase.instance.client
+                          .from('reserved_pile_numbers')
+                          .select('pile_number')
+                          .eq('user_id', user.id)
                           .eq('pile_number', enteredNumber);
 
-                      if ((existingCheck as List).isNotEmpty) {
+                      if (reservedCheck != null && (reservedCheck as List).isNotEmpty) {
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: Text('Pile ID #$enteredNumber already exists in the database. Please choose a different ID.'),
+                              content: Text('Pile ID #$enteredNumber has already been used on your account. Please choose a different numeric ID.'),
                               backgroundColor: Colors.red.shade700,
                             ),
                           );
                         }
                         return;
                       }
+
+                      await Supabase.instance.client.from('reserved_pile_numbers').insert({
+                        'user_id': user.id,
+                        'pile_number': enteredNumber,
+                      });
 
                       final inserted = await Supabase.instance.client.from('compost_piles').insert({
                         'user_id': user.id,
@@ -1418,28 +1461,32 @@ class _MainNavigationState extends State<MainNavigation> {
                         'is_archived': false,
                       }).select().single();
 
-                      final newPileId = inserted['id'].toString();
+                      newPileId = inserted['id'].toString();
+                    }
 
-                      await Supabase.instance.client.from('day_readings').insert({
-                        'pile_id': newPileId,
-                        'day_number': 1,
-                        'temp': 55.0,
-                        'moisture': 55.0,
-                        'ph': 7.0,
-                      });
+                    // Insert initial reading for this new pile UUID
+                    await Supabase.instance.client.from('day_readings').insert({
+                      'pile_id': newPileId,
+                      'day_number': 1,
+                      'temp': 55.0,
+                      'moisture': 55.0,
+                      'ph': 7.0,
+                    });
 
-                      await _fetchCompostPilesAndReadings();
-                      if (context.mounted) Navigator.pop(context);
-                    } catch (e) {
-                      if (context.mounted) {
-                        String errorMsg = e.toString();
-                        if (errorMsg.contains('duplicate key') || errorMsg.contains('compost_piles_pile_number_key')) {
-                          errorMsg = 'Pile ID #$enteredNumber already exists. Please choose a unique numeric ID.';
-                        }
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text(errorMsg), backgroundColor: Colors.red.shade700),
-                        );
+                    await _fetchCompostPilesAndReadings();
+                    if (context.mounted) Navigator.pop(context);
+                  } catch (e) {
+                    if (context.mounted) {
+                      String errorMsg = e.toString();
+                      if (errorMsg.contains('already been reserved') ||
+                          errorMsg.contains('reserved_pile_numbers_user_pile_key') ||
+                          errorMsg.contains('compost_piles_user_pile_key') ||
+                          errorMsg.contains('duplicate key')) {
+                        errorMsg = 'Pile ID #$enteredNumber has already been used on your account. Please choose a different numeric ID.';
                       }
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(errorMsg), backgroundColor: Colors.red.shade700, duration: const Duration(seconds: 4)),
+                      );
                     }
                   }
                 },
