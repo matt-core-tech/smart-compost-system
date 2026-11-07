@@ -23,65 +23,6 @@ API_AUTH_TOKEN = os.environ.get("API_AUTH_TOKEN", "smart-compost-secret-token-12
 MIN_READING_INTERVAL_SECONDS = 30
 last_upload_timestamps = {}  # Map of pile_number -> timestamp
 
-# ==========================================================
-# CENTRAL MOISTURE SENSOR CALIBRATION CONFIGURATION
-# ==========================================================
-# DRY_REF_ADC: Raw ADC reading in dry reference conditions (air / dry soil).
-# WET_REF_ADC: Raw ADC reading in wet reference conditions (submerged / saturated soil).
-# SENSOR_DIRECTION: 'INVERTED' (Standard capacitive sensor: higher ADC = dryer, lower ADC = wetter)
-#                    or 'DIRECT' (lower ADC = dryer, higher ADC = wetter).
-# IS_CALIBRATED: Set to True once dry & wet reference values are physically measured & verified.
-# ==========================================================
-MOISTURE_CALIBRATION_CONFIG = {
-    "DRY_REF_ADC": float(os.environ.get("MOISTURE_DRY_ADC", 3200.0)),
-    "WET_REF_ADC": float(os.environ.get("MOISTURE_WET_ADC", 1200.0)),
-    "SENSOR_DIRECTION": os.environ.get("MOISTURE_SENSOR_DIRECTION", "INVERTED").upper(),
-    "IS_CALIBRATED": os.environ.get("MOISTURE_IS_CALIBRATED", "false").lower() == "true"
-}
-
-def calculate_calibrated_moisture_pct(raw_adc):
-    """
-    Calculates calibrated moisture percentage (0.0% - 100.0%) from raw ADC.
-    - Division-by-zero protection.
-    - Clamps strictly to 0.0% - 100.0%.
-    - Handles sensor direction (INVERTED vs DIRECT).
-    - Returns None if raw_adc is invalid/out-of-bounds or if IS_CALIBRATED is False.
-    """
-    if raw_adc is None:
-        return None
-    try:
-        val = float(raw_adc)
-        # ESP32 12-bit ADC range check (0 to 4095)
-        if val < 0 or val > 4095:
-            print(f"[CALIBRATION WARN] Raw ADC reading out of 12-bit physical bounds ({val}).")
-            return None
-
-        if not MOISTURE_CALIBRATION_CONFIG["IS_CALIBRATED"]:
-            # Physical calibration references not yet verified
-            return None
-
-        dry_adc = MOISTURE_CALIBRATION_CONFIG["DRY_REF_ADC"]
-        wet_adc = MOISTURE_CALIBRATION_CONFIG["WET_REF_ADC"]
-
-        # Prevent division by zero if dry_adc equals wet_adc
-        if dry_adc == wet_adc:
-            print("[CALIBRATION ERROR] DRY_REF_ADC equals WET_REF_ADC. Division by zero prevented.")
-            return None
-
-        direction = MOISTURE_CALIBRATION_CONFIG["SENSOR_DIRECTION"]
-
-        if direction == "INVERTED" or dry_adc > wet_adc:
-            # Standard Capacitive Sensor: Higher ADC = Dryer, Lower ADC = Wetter
-            pct = ((dry_adc - val) / (dry_adc - wet_adc)) * 100.0
-        else:
-            # Directly Proportional Sensor: Lower ADC = Dryer, Higher ADC = Wetter
-            pct = ((val - dry_adc) / (wet_adc - dry_adc)) * 100.0
-
-        # Clamp strictly between 0.0% and 100.0%
-        return round(max(0.0, min(100.0, pct)), 1)
-    except (ValueError, TypeError):
-        return None
-
 def get_supabase_headers():
     return {
         "Content-Type": "application/json",
@@ -172,19 +113,16 @@ def receive_sensor_readings():
         except (ValueError, TypeError):
             pass
 
-    raw_moisture_val = None
+    moisture_val = None
     if "raw_moisture" in data and data["raw_moisture"] is not None:
         try:
             m = float(data["raw_moisture"])
             if 0 <= m <= 4095:
-                raw_moisture_val = round(m, 1)
+                moisture_val = round(m, 1)
             else:
                 print(f"[SENSOR WARN] Moisture raw ADC out of bounds ({m}). Storing NULL.")
         except (ValueError, TypeError):
             pass
-
-    # Calculate calibrated moisture percentage (None if IS_CALIBRATED is False or raw ADC invalid)
-    moisture_pct_val = calculate_calibrated_moisture_pct(raw_moisture_val)
 
     ph_val = None
     if "ph" in data and data["ph"] is not None:
@@ -212,9 +150,7 @@ def receive_sensor_readings():
         "pile_id": pile_uuid,
         "day_number": day_number,
         "temp": temp_val,
-        "moisture": raw_moisture_val,       # Preserved raw ADC for backward compatibility
-        "raw_moisture": raw_moisture_val,   # Preserved raw ADC reading
-        "moisture_pct": moisture_pct_val,   # Calibrated percentage or NULL if pending
+        "moisture": moisture_val,
         "ph": ph_val
     }
 
@@ -222,8 +158,8 @@ def receive_sensor_readings():
         insert_res = requests.post(insert_url, headers=get_supabase_headers(), json=payload, timeout=10)
         if insert_res.status_code in [200, 201, 204]:
             last_upload_timestamps[pile_number] = current_time
-            print(f"[ESP32 WI-FI TELEMETRY SAVED] Pile #{pile_number} ('{pile_name}' / UUID: {pile_uuid}): "
-                  f"Temp={temp_val}°C, RawADC={raw_moisture_val}, MoisturePct={moisture_pct_val}%, pH={ph_val}, Day={day_number}")
+            print(f"[REAL ESP32 WI-FI SENSOR READING SAVED] Pile #{pile_number} ('{pile_name}' / UUID: {pile_uuid}): "
+                  f"Temp={temp_val}°C, RawMoisture={moisture_val}, pH={ph_val}, Day={day_number}")
             return jsonify({
                 "status": "success",
                 "message": f"Reading saved for Pile #{pile_number}",
@@ -242,8 +178,7 @@ def health_check():
     return jsonify({
         "service": "Smart Compost System Python Telemetry API",
         "status": "running",
-        "version": "2.1.0",
-        "moisture_calibration": MOISTURE_CALIBRATION_CONFIG
+        "version": "2.0.0"
     }), 200
 
 if __name__ == "__main__":
@@ -254,6 +189,6 @@ if __name__ == "__main__":
     print(f"==========================================================")
     print(f" Listening on          : http://{host}:{port}")
     print(f" Endpoint              : POST http://{host}:{port}/api/readings")
-    print(f" Calibration Config    : {MOISTURE_CALIBRATION_CONFIG}")
+    print(f" Security Token        : {API_AUTH_TOKEN}")
     print(f"==========================================================")
     app.run(host=host, port=port, debug=False)

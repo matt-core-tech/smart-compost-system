@@ -37,9 +37,7 @@ class DayReading {
   final int day;
   final String dateStr;
   final double? temp;
-  final double? moisture;      // Raw ADC (preserved for backward compatibility)
-  final double? rawMoisture;   // Raw ADC value (e.g. 0 - 4095)
-  final double? moisturePct;   // Calibrated moisture percentage (0.0% - 100.0%)
+  final double? moisture;
   final double? ph;
   final DateTime? createdAt;
 
@@ -50,8 +48,6 @@ class DayReading {
     required this.dateStr,
     this.temp,
     this.moisture,
-    this.rawMoisture,
-    this.moisturePct,
     this.ph,
     this.createdAt,
   });
@@ -74,19 +70,13 @@ class DayReading {
       dateDisplay = map['reading_date'].toString();
     }
 
-    final parsedMoisture = parseDouble(map['moisture']);
-    final parsedRawMoisture = parseDouble(map['raw_moisture']) ?? parsedMoisture;
-    final parsedMoisturePct = parseDouble(map['moisture_pct']);
-
     return DayReading(
       id: map['id'] != null ? int.tryParse(map['id'].toString()) : null,
       pileId: map['pile_id']?.toString(),
       day: map['day_number'] != null ? int.tryParse(map['day_number'].toString()) ?? 1 : 1,
       dateStr: dateDisplay,
       temp: parseDouble(map['temp']),
-      moisture: parsedMoisture,
-      rawMoisture: parsedRawMoisture,
-      moisturePct: parsedMoisturePct,
+      moisture: parseDouble(map['moisture']),
       ph: parseDouble(map['ph']),
       createdAt: created,
     );
@@ -99,19 +89,7 @@ class DayReading {
   }
 
   String get tempDisplay => temp != null ? '${temp!.round()}°C' : 'Not available';
-  
-  String get moistureDisplay {
-    if (moisturePct != null) {
-      return '${moisturePct!.round()}%';
-    } else if (rawMoisture != null) {
-      return '${rawMoisture!.round()} ADC (Pending Calibration)';
-    } else if (moisture != null) {
-      return '${moisture!.round()} ADC (Pending Calibration)';
-    } else {
-      return 'Not available';
-    }
-  }
-
+  String get moistureDisplay => moisture != null ? '${moisture!.round()} ADC' : 'Not available';
   String get phDisplay => ph != null ? ph!.toStringAsFixed(1) : 'Not available';
 }
 
@@ -228,19 +206,7 @@ class CompostPile {
 
   String get displayName => pileNumber != null ? 'Pile #$pileNumber — $name' : name;
   String get tempDisplay => temp != null ? '${temp!.round()}°C' : 'Not available';
-  
-  String get moistureDisplay {
-    if (history.isNotEmpty && history.last.moisturePct != null) {
-      return '${history.last.moisturePct!.round()}%';
-    } else if (history.isNotEmpty && history.last.rawMoisture != null) {
-      return '${history.last.rawMoisture!.round()} ADC (Pending Calibration)';
-    } else if (moisture != null) {
-      return '${moisture!.round()} ADC (Pending Calibration)';
-    } else {
-      return 'Not available';
-    }
-  }
-
+  String get moistureDisplay => moisture != null ? '${moisture!.round()} ADC' : 'Not available';
   String get phDisplay => ph != null ? ph!.toStringAsFixed(1) : 'Not available';
 
   void _updateStatus() {

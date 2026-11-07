@@ -3,8 +3,6 @@
 *.log
 *.pyc
 *.swp
-*.env
-sensor_api/.env
 .DS_Store
 .atom/
 .build/

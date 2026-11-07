@@ -45,17 +45,11 @@ CREATE TABLE IF NOT EXISTS public.day_readings (
     pile_id UUID NOT NULL REFERENCES public.compost_piles(id) ON DELETE CASCADE,
     day_number INT DEFAULT 1,
     reading_date DATE DEFAULT CURRENT_DATE,
-    temp NUMERIC,          -- NULL when temperature sensor is unavailable
-    moisture NUMERIC,      -- Raw ADC value (preserved for backward compatibility)
-    raw_moisture NUMERIC,  -- Raw ADC value directly from sensor (e.g. 0 - 4095)
-    moisture_pct NUMERIC,  -- Calibrated moisture percentage (0.0% - 100.0%)
-    ph NUMERIC,            -- NULL when pH sensor is unavailable
+    temp NUMERIC,      -- NULL when temperature sensor is unavailable
+    moisture NUMERIC,  -- Raw ADC value or validated reading
+    ph NUMERIC,        -- NULL when pH sensor is unavailable
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
-
--- Ensure raw_moisture and moisture_pct columns exist on day_readings
-ALTER TABLE public.day_readings ADD COLUMN IF NOT EXISTS raw_moisture NUMERIC;
-ALTER TABLE public.day_readings ADD COLUMN IF NOT EXISTS moisture_pct NUMERIC;
 
 -- ----------------------------------------------------------
 -- 2. ADMIN DASHBOARD & SECURITY EXTENSION TABLES
