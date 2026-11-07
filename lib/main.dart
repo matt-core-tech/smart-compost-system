@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -29,7 +30,6 @@ void main() async {
 // 1. DATA MODELS & ENUMS
 // ==========================================
 enum StatusLevel { onTrack, warning, critical, completed }
-enum CompostStage { mesophilic, thermophilic, cooling, maturation }
 
 class DayReading {
   final int? id;
@@ -122,7 +122,6 @@ class CompostPile {
   List<DayReading> history;
   bool isArchived;
   DateTime startDate;
-  int targetTotalDays;
 
   CompostPile({
     required this.id,
@@ -137,7 +136,6 @@ class CompostPile {
     required this.history,
     this.isArchived = false,
     required this.startDate,
-    this.targetTotalDays = 30,
   });
 
   factory CompostPile.fromMap(Map<String, dynamic> map, {List<DayReading>? historyReadings}) {
@@ -200,7 +198,6 @@ class CompostPile {
       history: sortedHistory,
       isArchived: map['is_archived'] == true,
       startDate: parsedStart,
-      targetTotalDays: map['target_total_days'] != null ? int.tryParse(map['target_total_days'].toString()) ?? 30 : 30,
     );
 
     pile._updateStatus();
@@ -211,26 +208,6 @@ class CompostPile {
   String get tempDisplay => temp != null ? '${temp!.round()}°C' : 'Not available';
   String get moistureDisplay => moisture != null ? '${moisture!.round()} ADC' : 'Not available';
   String get phDisplay => ph != null ? ph!.toStringAsFixed(1) : 'Not available';
-
-  double get readinessPercent {
-    if (isArchived) return 100.0;
-    int daysActive = DateTime.now().difference(startDate).inDays.clamp(1, targetTotalDays);
-    return ((daysActive / targetTotalDays) * 100.0).clamp(0.0, 100.0);
-  }
-
-  int get predictedDaysRemaining {
-    if (isArchived) return 0;
-    int daysActive = DateTime.now().difference(startDate).inDays;
-    return (targetTotalDays - daysActive).clamp(0, targetTotalDays);
-  }
-
-  CompostStage get currentStage {
-    double progress = readinessPercent;
-    if (progress < 25.0) return CompostStage.mesophilic;
-    if (progress < 60.0) return CompostStage.thermophilic;
-    if (progress < 85.0) return CompostStage.cooling;
-    return CompostStage.maturation;
-  }
 
   void _updateStatus() {
     if (isArchived) {
@@ -758,21 +735,21 @@ class _MainNavigationState extends State<MainNavigation> {
       _realtimeChannel = Supabase.instance.client
           .channel('public:telemetry')
           .onPostgresChanges(
-            event: PostgresChangeEvent.all,
-            schema: 'public',
-            table: 'day_readings',
-            callback: (payload) {
-              _handleIncomingTelemetryPayload(Map<String, dynamic>.from(payload.newRecord));
-            },
-          )
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'day_readings',
+        callback: (payload) {
+          _handleIncomingTelemetryPayload(Map<String, dynamic>.from(payload.newRecord));
+        },
+      )
           .onPostgresChanges(
-            event: PostgresChangeEvent.all,
-            schema: 'public',
-            table: 'compost_piles',
-            callback: (payload) {
-              _fetchCompostPilesAndReadings(silent: true);
-            },
-          )
+        event: PostgresChangeEvent.all,
+        schema: 'public',
+        table: 'compost_piles',
+        callback: (payload) {
+          _fetchCompostPilesAndReadings(silent: true);
+        },
+      )
           .subscribe();
     } catch (_) {}
   }
@@ -803,25 +780,36 @@ class _MainNavigationState extends State<MainNavigation> {
     _fetchCompostPilesAndReadings(silent: true);
   }
 
-  void _handleGetReadingsClicked(CompostPile pile) {
-    setState(() {
-      _activeReadingPileUuid = pile.id;
-      _getReadingsStartTime = DateTime.now();
-    });
+  Future<void> _handleGetReadingsClicked(CompostPile pile) async {
+    setState(() => _activeReadingPileUuid = pile.id);
+    try {
+      final rows = await Supabase.instance.client
+          .from('day_readings')
+          .select()
+          .eq('pile_id', pile.id)
+          .order('created_at', ascending: true);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Get Readings active for ${pile.displayName}. Querying database...'),
-        duration: const Duration(seconds: 3),
-        backgroundColor: const Color(0xFF1B3B2B),
-      ),
-    );
-
-    Timer(const Duration(seconds: 45), () {
-      if (mounted && _activeReadingPileUuid == pile.id) {
-        setState(() => _activeReadingPileUuid = null);
-      }
-    });
+      // Refresh the pile list so its latest sensor values and history are rebuilt
+      // from the same database records shown on the detail screen.
+      await _fetchCompostPilesAndReadings(silent: true);
+      if (!mounted) return;
+      final count = (rows as List).length;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(count == 0
+              ? 'No readings are stored for ${pile.displayName} yet.'
+              : 'Retrieved $count database reading${count == 1 ? '' : 's'} for ${pile.displayName}.'),
+          backgroundColor: const Color(0xFF1B3B2B),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not retrieve readings: $e'), backgroundColor: Colors.red.shade700),
+      );
+    } finally {
+      if (mounted) setState(() => _activeReadingPileUuid = null);
+    }
   }
 
   Future<void> _fetchCompostPilesAndReadings({bool silent = false}) async {
@@ -912,36 +900,14 @@ class _MainNavigationState extends State<MainNavigation> {
   }
 
   void _checkAndTriggerReadinessAlerts() {
-    for (var pile in piles) {
+    // A five-reading milestone is a data-count notification, not a maturity claim.
+    // Compost maturity must not be inferred from elapsed days alone.
+    for (final pile in piles) {
       if (pile.history.length >= 5 && !_notified5DayPiles.contains(pile.id)) {
         _notified5DayPiles.add(pile.id);
         try {
           _notificationChannel.invokeMethod('show5DayMilestone', {'pileName': pile.displayName});
         } catch (_) {}
-      }
-
-      if (pile.readinessPercent >= 99.5 && !_notifiedCompletedPiles.contains(pile.id)) {
-        _notifiedCompletedPiles.add(pile.id);
-        try {
-          _notificationChannel.invokeMethod('showCompletion', {'pileName': pile.displayName});
-        } catch (_) {}
-
-        if (!pile.isArchived) {
-          pile.isArchived = true;
-          pile.status = StatusLevel.completed;
-
-          alertsList.insert(
-            0,
-            CompostAlert(
-              id: DateTime.now().millisecondsSinceEpoch.toString(),
-              title: '${pile.displayName} is READY!',
-              time: 'Just now',
-              body: 'Pile has reached 100% maturity stage. Automatically moved to Archives.',
-              color: Colors.green,
-            ),
-          );
-          _hasUnreadAlerts = true;
-        }
       }
     }
   }
@@ -1002,7 +968,7 @@ class _MainNavigationState extends State<MainNavigation> {
               const SizedBox(height: 4),
               const Text('Start with Pile ID 1 if this is your first compost pile.', style: TextStyle(fontSize: 12, color: Color(0xFF00A896), fontWeight: FontWeight.w600)),
               const SizedBox(height: 16),
-              
+
               // 1. Pile Number
               TextField(
                 controller: pileNumberController,
@@ -1057,8 +1023,7 @@ class _MainNavigationState extends State<MainNavigation> {
                       params: {
                         'p_pile_number': enteredNumber,
                         'p_name': nameController.text.trim(),
-                        'p_category': categoryController.text.isEmpty ? 'General Waste' : categoryController.text.trim(),
-                        'p_target_days': 30,
+                        'p_category': categoryController.text.trim().isEmpty ? 'General Waste' : categoryController.text.trim(),
                       },
                     );
 
@@ -1130,19 +1095,19 @@ class _MainNavigationState extends State<MainNavigation> {
     return Scaffold(
       appBar: _isAdmin
           ? AppBar(
-              backgroundColor: const Color(0xFF1B3B2B),
-              elevation: 0,
-              title: const Text('CompostWise Mobile', style: TextStyle(color: Colors.white, fontSize: 16)),
-              actions: [
-                TextButton.icon(
-                  icon: const Icon(Icons.admin_panel_settings, color: Color(0xFF81E6D9)),
-                  label: const Text('Admin Dashboard', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
-                  onPressed: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (context) => const AdminDashboardScreen()));
-                  },
-                ),
-              ],
-            )
+        backgroundColor: const Color(0xFF1B3B2B),
+        elevation: 0,
+        title: const Text('CompostWise Mobile', style: TextStyle(color: Colors.white, fontSize: 16)),
+        actions: [
+          TextButton.icon(
+            icon: const Icon(Icons.admin_panel_settings, color: Color(0xFF81E6D9)),
+            label: const Text('Admin Dashboard', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+            onPressed: () {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const AdminDashboardScreen()));
+            },
+          ),
+        ],
+      )
           : null,
       body: screens[_currentIndex],
       floatingActionButton: FloatingActionButton(
@@ -1396,13 +1361,13 @@ class HomeScreen extends StatelessWidget {
                             : null,
                         child: activeReadingPileUuid == pile.id
                             ? const Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  SizedBox(width: 10, height: 10, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
-                                  SizedBox(width: 4),
-                                  Text('Listening...', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
-                                ],
-                              )
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(width: 10, height: 10, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)),
+                            SizedBox(width: 4),
+                            Text('Listening...', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                          ],
+                        )
                             : const Text('Get Readings', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                       ),
                     ],
@@ -1466,6 +1431,7 @@ class _PileDetailScreenState extends State<PileDetailScreen> {
   }
 
   Future<void> _fetchReadingsFromSupabase() async {
+    if (!mounted) return;
     setState(() {
       _isLoadingReadings = true;
       _errorMessage = null;
@@ -1586,29 +1552,29 @@ class _PileDetailScreenState extends State<PileDetailScreen> {
                 ),
               )
             else if (_readingsList.isEmpty)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
-                child: const Center(
-                  child: Text(
-                    'No sensor readings available for this compost pile yet.',
-                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                  child: const Center(
+                    child: Text(
+                      'No sensor readings available for this compost pile yet.',
+                      style: TextStyle(color: Colors.grey, fontSize: 13),
+                    ),
                   ),
-                ),
-              )
-            else
-              ..._readingsList.map((reading) => Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  title: Text('Date: ${reading.dateStr}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                  subtitle: Text(
-                    'Temp: ${reading.tempDisplay}  |  Moisture: ${reading.moistureDisplay}  |  pH: ${reading.phDisplay}',
-                    style: const TextStyle(fontSize: 12),
+                )
+              else
+                ..._readingsList.map((reading) => Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  child: ListTile(
+                    title: Text('Date: ${reading.dateStr}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                    subtitle: Text(
+                      'Temp: ${reading.tempDisplay}  |  Moisture: ${reading.moistureDisplay}  |  pH: ${reading.phDisplay}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    trailing: Text('Day ${reading.day}', style: const TextStyle(color: Color(0xFF00A896), fontWeight: FontWeight.bold, fontSize: 12)),
                   ),
-                  trailing: Text('Day ${reading.day}', style: const TextStyle(color: Color(0xFF00A896), fontWeight: FontWeight.bold, fontSize: 12)),
-                ),
-              )),
+                )),
           ],
         ),
       ),
@@ -1655,23 +1621,23 @@ class PilesTabScreen extends StatelessWidget {
         child: isLoading
             ? const Center(child: CircularProgressIndicator(color: Color(0xFF1B3B2B)))
             : piles.isEmpty
-                ? const Center(child: Text('No active compost piles.', style: TextStyle(color: Colors.grey)))
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: piles.length,
-                    itemBuilder: (context, index) {
-                      final pile = piles[index];
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        child: ListTile(
-                          title: Text(pile.displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text('Category: ${pile.category} | Temp: ${pile.tempDisplay}'),
-                          trailing: const Icon(Icons.arrow_forward_ios, size: 16),
-                          onTap: () => onOpenDetail(pile),
-                        ),
-                      );
-                    },
-                  ),
+            ? const Center(child: Text('No active compost piles.', style: TextStyle(color: Colors.grey)))
+            : ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: piles.length,
+          itemBuilder: (context, index) {
+            final pile = piles[index];
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: ListTile(
+                title: Text(pile.displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text('Category: ${pile.category} | Temp: ${pile.tempDisplay}'),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 16),
+                onTap: () => onOpenDetail(pile),
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -1724,21 +1690,21 @@ class AlertsScreen extends StatelessWidget {
       body: alerts.isEmpty
           ? const Center(child: Text('No unread alerts.', style: TextStyle(color: Colors.grey)))
           : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: alerts.length,
-              itemBuilder: (context, index) {
-                final alert = alerts[index];
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    leading: CircleAvatar(backgroundColor: alert.color, radius: 8),
-                    title: Text(alert.title, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text(alert.body),
-                    trailing: Text(alert.time, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-                  ),
-                );
-              },
+        padding: const EdgeInsets.all(16),
+        itemCount: alerts.length,
+        itemBuilder: (context, index) {
+          final alert = alerts[index];
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            child: ListTile(
+              leading: CircleAvatar(backgroundColor: alert.color, radius: 8),
+              title: Text(alert.title, style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Text(alert.body),
+              trailing: Text(alert.time, style: const TextStyle(fontSize: 11, color: Colors.grey)),
             ),
+          );
+        },
+      ),
     );
   }
 }
@@ -1756,19 +1722,19 @@ class ArchivesScreen extends StatelessWidget {
       body: archivedPiles.isEmpty
           ? const Center(child: Text('No archived compost piles.', style: TextStyle(color: Colors.grey)))
           : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: archivedPiles.length,
-              itemBuilder: (context, index) {
-                final pile = archivedPiles[index];
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    title: Text(pile.displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                    subtitle: Text('Category: ${pile.category} | Status: Completed'),
-                  ),
-                );
-              },
+        padding: const EdgeInsets.all(16),
+        itemCount: archivedPiles.length,
+        itemBuilder: (context, index) {
+          final pile = archivedPiles[index];
+          return Card(
+            margin: const EdgeInsets.only(bottom: 12),
+            child: ListTile(
+              title: Text(pile.displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Text('Category: ${pile.category} | Status: Completed'),
             ),
+          );
+        },
+      ),
     );
   }
 }
@@ -1859,106 +1825,82 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   }
 
   Future<void> _fetchAdminData() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
 
     try {
       final dynamic isAdminRes = await Supabase.instance.client.rpc('is_admin');
       if (isAdminRes != true) {
-        if (mounted) {
-          setState(() {
-            _isAdminVerified = false;
-            _isLoading = false;
-          });
-        }
+        if (mounted) setState(() { _isAdminVerified = false; _isLoading = false; });
         return;
       }
-
       _isAdminVerified = true;
 
-      // 1. Fetch Users & Pile Counts
-      final dynamic pileRows = await Supabase.instance.client.from('compost_piles').select();
-      final dynamic readingRows = await Supabase.instance.client.from('day_readings').select().order('created_at', ascending: false);
-      final dynamic deviceRows = await Supabase.instance.client.from('devices').select();
-      final dynamic auditRows = await Supabase.instance.client.from('audit_logs').select().order('created_at', ascending: false);
-      final dynamic roleRows = await Supabase.instance.client.from('user_roles').select();
+      // Load core datasets independently. An optional table (devices/audit_logs/
+      // user_roles) being absent must not prevent piles and readings from loading.
+      List<dynamic> pileRows = [];
+      List<dynamic> readingRows = [];
+      List<dynamic> deviceRows = [];
+      List<dynamic> auditRows = [];
+      List<dynamic> roleRows = [];
 
-      List<CompostPile> loadedPiles = [];
-      if (pileRows != null && (pileRows as List).isNotEmpty) {
-        for (var p in (pileRows as List)) {
-          loadedPiles.add(CompostPile.fromMap(Map<String, dynamic>.from(p as Map)));
-        }
-      }
+      try { pileRows = await Supabase.instance.client.from('compost_piles').select(); } catch (_) {}
+      try { readingRows = await Supabase.instance.client.from('day_readings').select().order('created_at', ascending: false); } catch (_) {}
+      try { deviceRows = await Supabase.instance.client.from('devices').select(); } catch (_) {}
+      try { auditRows = await Supabase.instance.client.from('audit_logs').select().order('created_at', ascending: false); } catch (_) {}
+      try { roleRows = await Supabase.instance.client.from('user_roles').select(); } catch (_) {}
 
-      List<DayReading> loadedReadings = [];
-      if (readingRows != null && (readingRows as List).isNotEmpty) {
-        for (var r in (readingRows as List)) {
-          loadedReadings.add(DayReading.fromMap(Map<String, dynamic>.from(r as Map)));
-        }
-      }
+      final loadedPiles = pileRows
+          .map((p) => CompostPile.fromMap(Map<String, dynamic>.from(p as Map)))
+          .toList();
+      final loadedReadings = readingRows
+          .map((r) => DayReading.fromMap(Map<String, dynamic>.from(r as Map)))
+          .toList();
 
-      List<AdminDeviceNode> loadedDevices = [];
-      if (deviceRows != null && (deviceRows as List).isNotEmpty) {
-        for (var d in (deviceRows as List)) {
-          final dMap = Map<String, dynamic>.from(d as Map);
-          DateTime? lastSeenDt;
-          if (dMap['last_seen'] != null) {
-            lastSeenDt = DateTime.tryParse(dMap['last_seen'].toString());
-          }
-          bool isOnline = lastSeenDt != null && DateTime.now().difference(lastSeenDt).inMinutes < 5;
-          loadedDevices.add(AdminDeviceNode(
-            id: dMap['id'].toString(),
-            deviceCode: dMap['device_code'].toString(),
-            pileId: dMap['pile_id']?.toString(),
-            lastSeen: lastSeenDt,
-            isOnline: isOnline,
-          ));
-        }
-      }
-
-      List<AdminAuditLog> loadedAudits = [];
-      if (auditRows != null && (auditRows as List).isNotEmpty) {
-        for (var a in (auditRows as List)) {
-          final aMap = Map<String, dynamic>.from(a as Map);
-          loadedAudits.add(AdminAuditLog(
-            id: aMap['id'].toString(),
-            userId: aMap['user_id']?.toString(),
-            action: aMap['action']?.toString() ?? 'SYSTEM_EVENT',
-            targetType: aMap['target_type']?.toString(),
-            targetId: aMap['target_id']?.toString(),
-            details: aMap['details'] != null ? Map<String, dynamic>.from(aMap['details'] as Map) : null,
-            createdAt: aMap['created_at'] != null ? DateTime.tryParse(aMap['created_at'].toString()) : null,
-          ));
-        }
-      }
-
-      // Compute User Stats from Distinct User IDs in Compost Piles & User Roles
-      Set<String> userIds = {};
-      for (var p in loadedPiles) {
-        if (p.userId != null) userIds.add(p.userId!);
-      }
-      if (roleRows != null && (roleRows as List).isNotEmpty) {
-        for (var r in (roleRows as List)) {
-          final uId = r['user_id']?.toString();
-          if (uId != null) userIds.add(uId);
-        }
-      }
-
-      List<AdminAppUser> loadedUsers = [];
-      for (var uId in userIds) {
-        int userPileCount = loadedPiles.where((p) => p.userId == uId).length;
-        String roleStr = 'user';
-        if (roleRows != null) {
-          final roleMatch = (roleRows as List).firstWhere((r) => r['user_id']?.toString() == uId, orElse: () => null);
-          if (roleMatch != null) roleStr = roleMatch['role'].toString();
-        }
-        loadedUsers.add(AdminAppUser(
-          id: uId,
-          email: 'User ${uId.substring(0, 8)}...',
-          fullName: 'Farmer ($uId)',
-          role: roleStr,
-          pileCount: userPileCount,
+      final loadedDevices = <AdminDeviceNode>[];
+      for (final d in deviceRows) {
+        final dMap = Map<String, dynamic>.from(d as Map);
+        final lastSeenDt = dMap['last_seen'] == null ? null : DateTime.tryParse(dMap['last_seen'].toString());
+        final isOnline = lastSeenDt != null && DateTime.now().difference(lastSeenDt).inMinutes < 5;
+        loadedDevices.add(AdminDeviceNode(
+          id: dMap['id']?.toString() ?? '',
+          deviceCode: dMap['device_code']?.toString() ?? 'Unknown device',
+          pileId: dMap['pile_id']?.toString(),
+          lastSeen: lastSeenDt,
+          isOnline: isOnline,
         ));
       }
+
+      final loadedAudits = <AdminAuditLog>[];
+      for (final a in auditRows) {
+        final aMap = Map<String, dynamic>.from(a as Map);
+        loadedAudits.add(AdminAuditLog(
+          id: aMap['id']?.toString() ?? '',
+          userId: aMap['user_id']?.toString(),
+          action: aMap['action']?.toString() ?? 'SYSTEM_EVENT',
+          targetType: aMap['target_type']?.toString(),
+          targetId: aMap['target_id']?.toString(),
+          details: aMap['details'] is Map ? Map<String, dynamic>.from(aMap['details'] as Map) : null,
+          createdAt: aMap['created_at'] == null ? null : DateTime.tryParse(aMap['created_at'].toString()),
+        ));
+      }
+
+      // The Supabase client must not query auth.users directly. Until a protected
+      // admin RPC supplies email/name fields, show honest account identifiers only.
+      final userIds = <String>{
+        ...loadedPiles.where((p) => p.userId != null).map((p) => p.userId!),
+        ...roleRows.where((r) => r['user_id'] != null).map((r) => r['user_id'].toString()),
+      };
+      final loadedUsers = userIds.map((uId) {
+        final roleMatch = roleRows.where((r) => r['user_id']?.toString() == uId).toList();
+        final roleStr = roleMatch.isNotEmpty ? (roleMatch.first['role']?.toString() ?? 'user') : 'user';
+        return AdminAppUser(
+          id: uId,
+          email: 'Not available through the client API',
+          fullName: 'Account ${uId.substring(0, uId.length < 8 ? uId.length : 8)}',
+          role: roleStr,
+          pileCount: loadedPiles.where((p) => p.userId == uId).length,
+        );
+      }).toList();
 
       if (mounted) {
         setState(() {
@@ -1967,36 +1909,40 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
           _devicesList = loadedDevices;
           _auditLogsList = loadedAudits;
           _usersList = loadedUsers;
-
           _totalUsers = loadedUsers.length;
           _totalPiles = loadedPiles.length;
           _activePiles = loadedPiles.where((p) => !p.isArchived).length;
           _completedPiles = loadedPiles.where((p) => p.isArchived).length;
           _totalReadings = loadedReadings.length;
           _onlineDevices = loadedDevices.where((d) => d.isOnline).length;
-
           _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Admin dashboard could not load: $e'), backgroundColor: Colors.red.shade700),
+        );
       }
     }
   }
 
-  void _exportCSVReport(String filename, List<List<String>> rows) {
-    final csvContent = rows.map((r) => r.join(',')).join('\n');
-    if (kIsWeb) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Generated CSV export ($filename):\n$csvContent'), duration: const Duration(seconds: 5)),
-      );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('CSV Report Generated for $filename'), backgroundColor: const Color(0xFF1B3B2B)),
-      );
+  Future<void> _exportCSVReport(String filename, List<List<String>> rows) async {
+    String escapeCsv(String value) => '"${value.replaceAll('"', '""')}"';
+    final csvContent = rows.map((row) => row.map(escapeCsv).join(',')).join('\r\n');
+    try {
+      final directory = await getTemporaryDirectory();
+      final safeName = filename.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+      final file = File('${directory.path}/$safeName');
+      await file.writeAsString(csvContent, flush: true);
+      await Share.shareXFiles([XFile(file.path, mimeType: 'text/csv', name: safeName)], text: safeName);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('CSV export failed: $e'), backgroundColor: Colors.red.shade700),
+        );
+      }
     }
   }
 
@@ -2223,7 +2169,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
           TextField(
             decoration: InputDecoration(
-              hintText: 'Search users by ID or role...',
+              hintText: 'Search accounts by ID or role...',
               prefixIcon: const Icon(Icons.search),
               filled: true,
               fillColor: Colors.white,
@@ -2241,7 +2187,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               child: ListTile(
                 leading: CircleAvatar(backgroundColor: u.role == 'admin' ? Colors.purple : const Color(0xFF1B3B2B), child: Icon(u.role == 'admin' ? Icons.admin_panel_settings : Icons.person, color: Colors.white, size: 18)),
                 title: Text(u.fullName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                subtitle: Text('User ID: ${u.id} | Role: ${u.role.toUpperCase()}'),
+                subtitle: Text('Account ID: ${u.id} | Role: ${u.role.toUpperCase()}\nEmail: ${u.email}'),
                 trailing: Chip(label: Text('${u.pileCount} Piles', style: const TextStyle(fontSize: 11)), backgroundColor: const Color(0xFFE6FFFA)),
               ),
             )),
@@ -2285,7 +2231,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               child: ListTile(
                 leading: CircleAvatar(backgroundColor: getHeaderColor(p.status), child: Text('#${p.pileNumber ?? "?"}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 11))),
                 title: Text(p.displayName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                subtitle: Text('Category: ${p.category} | Temp: ${p.tempDisplay} | Owner: ${p.userId?.substring(0, 8)}...'),
+                subtitle: Text('Category: ${p.category} | Temp: ${p.tempDisplay} | Owner: ${p.userId == null ? 'Unknown' : p.userId!.substring(0, p.userId!.length < 8 ? p.userId!.length : 8)}...'),
                 trailing: Chip(label: Text(getStatusLabel(p.status), style: TextStyle(color: getBadgeTextColor(p.status), fontSize: 10)), backgroundColor: getBadgeBgColor(p.status)),
               ),
             )),

@@ -72,6 +72,8 @@ class CompostNotificationHelper(private val context: Context) {
             with(NotificationManagerCompat.from(context)) {
                 notify(id, builder.build())
             }
-        } catch (_) {}
+        } catch (e: Throwable) {
+            // Ignore notification failure
+        }
     }
 }
