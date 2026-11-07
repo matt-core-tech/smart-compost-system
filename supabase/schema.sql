@@ -1,6 +1,7 @@
 -- ==========================================================
--- SMART COMPOST SYSTEM - HARDENED SUPABASE MIGRATION & RLS SCHEMA
--- Per-User Permanent Pile Number Reservation & Hardened Security
+-- SMART COMPOST SYSTEM - COMPLETE SUPABASE SCHEMA & RBAC MIGRATION
+-- Per-User Permanent Pile Reservation, Role-Based Access Control,
+-- Device Management, Audit Logging & Hardened Security Policies
 -- Execute this SQL in Supabase Dashboard -> SQL Editor
 -- (https://supabase.com/dashboard/project/rlhfqpufrqibnmyhmtii/sql/new)
 -- ==========================================================
@@ -9,10 +10,10 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ----------------------------------------------------------
--- 1. REAL MIGRATION: Ensure Tables and Columns Exist
+-- 1. CORE APPLICATION TABLES
 -- ----------------------------------------------------------
 
--- Table: reserved_pile_numbers
+-- Table: reserved_pile_numbers (Per-User Permanent Number Registry)
 CREATE TABLE IF NOT EXISTS public.reserved_pile_numbers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -44,24 +45,50 @@ CREATE TABLE IF NOT EXISTS public.day_readings (
     pile_id UUID NOT NULL REFERENCES public.compost_piles(id) ON DELETE CASCADE,
     day_number INT DEFAULT 1,
     reading_date DATE DEFAULT CURRENT_DATE,
-    temp NUMERIC,
-    moisture NUMERIC,
-    ph NUMERIC,
+    temp NUMERIC,      -- NULL when temperature sensor is unavailable
+    moisture NUMERIC,  -- Raw ADC value or validated reading
+    ph NUMERIC,        -- NULL when pH sensor is unavailable
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ----------------------------------------------------------
--- 2. BACKFILL EXISTING RESERVATIONS & ADD CONSTRAINTS
+-- 2. ADMIN DASHBOARD & SECURITY EXTENSION TABLES
 -- ----------------------------------------------------------
 
--- Backfill reserved_pile_numbers from existing compost_piles records
-INSERT INTO public.reserved_pile_numbers (user_id, pile_number, original_pile_id, reserved_at)
-SELECT user_id, pile_number, id, created_at
-FROM public.compost_piles
-WHERE user_id IS NOT NULL AND pile_number IS NOT NULL AND pile_number > 0
-ON CONFLICT (user_id, pile_number) DO NOTHING;
+-- Table: user_roles (Role-Based Access Control)
+CREATE TABLE IF NOT EXISTS public.user_roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    CONSTRAINT user_roles_user_key UNIQUE (user_id)
+);
 
--- Add Foreign Key from reserved_pile_numbers.original_pile_id to compost_piles.id
+-- Table: devices (ESP32 IoT Node Tracking)
+CREATE TABLE IF NOT EXISTS public.devices (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_code TEXT UNIQUE NOT NULL,
+    pile_id UUID REFERENCES public.compost_piles(id) ON DELETE SET NULL,
+    last_seen TIMESTAMPTZ,
+    is_online BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Table: audit_logs (Administrative Action & Security Event Logging)
+CREATE TABLE IF NOT EXISTS public.audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    action TEXT NOT NULL,
+    target_type TEXT,
+    target_id TEXT,
+    details JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ----------------------------------------------------------
+-- 3. CONSTRAINTS & FOREIGN KEYS
+-- ----------------------------------------------------------
+
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -81,78 +108,28 @@ BEGIN
 END $$;
 
 -- ----------------------------------------------------------
--- 3. HARDENED ROW LEVEL SECURITY (RLS) POLICIES
--- Block all direct INSERT/UPDATE/DELETE on reserved_pile_numbers and compost_piles.
+-- 4. SECURITY FUNCTIONS & ADMIN VERIFICATION
 -- ----------------------------------------------------------
-ALTER TABLE public.reserved_pile_numbers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.compost_piles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.day_readings ENABLE ROW LEVEL SECURITY;
 
--- Drop all old/insecure policies
-DROP POLICY IF EXISTS "Users can view their own reserved pile numbers" ON public.reserved_pile_numbers;
-DROP POLICY IF EXISTS "Users can insert their own reserved pile numbers" ON public.reserved_pile_numbers;
+-- Function: Check if currently authenticated user is an Admin
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.user_roles
+        WHERE user_id = auth.uid() AND role = 'admin'
+    );
+END;
+$$;
 
-DROP POLICY IF EXISTS "Users can view their own compost piles" ON public.compost_piles;
-DROP POLICY IF EXISTS "Users can insert their own compost piles" ON public.compost_piles;
-DROP POLICY IF EXISTS "Users can update their own compost piles" ON public.compost_piles;
-DROP POLICY IF EXISTS "Users can delete their own compost piles" ON public.compost_piles;
+REVOKE EXECUTE ON FUNCTION public.is_admin() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
 
-DROP POLICY IF EXISTS "Users can view readings of their compost piles" ON public.day_readings;
-DROP POLICY IF EXISTS "Allow insertion of sensor readings" ON public.day_readings;
-DROP POLICY IF EXISTS "Users can insert readings for their compost piles" ON public.day_readings;
-
--- POLICIES: reserved_pile_numbers
--- READ ONLY for authenticated user. Direct INSERT/UPDATE/DELETE blocked.
-CREATE POLICY "Users can view their own reserved pile numbers"
-ON public.reserved_pile_numbers FOR SELECT
-TO authenticated
-USING (auth.uid() = user_id);
-
--- POLICIES: compost_piles
--- READ, UPDATE, DELETE allowed for owner. Direct INSERT blocked!
-CREATE POLICY "Users can view their own compost piles"
-ON public.compost_piles FOR SELECT
-TO authenticated
-USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can update their own compost piles"
-ON public.compost_piles FOR UPDATE
-TO authenticated
-USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete their own compost piles"
-ON public.compost_piles FOR DELETE
-TO authenticated
-USING (auth.uid() = user_id);
-
--- POLICIES: day_readings
--- Strict authenticated ownership required for viewing and inserting readings
-CREATE POLICY "Users can view readings of their compost piles"
-ON public.day_readings FOR SELECT
-TO authenticated
-USING (
-    EXISTS (
-        SELECT 1 FROM public.compost_piles
-        WHERE public.compost_piles.id = public.day_readings.pile_id
-        AND public.compost_piles.user_id = auth.uid()
-    )
-);
-
-CREATE POLICY "Users can insert readings for their compost piles"
-ON public.day_readings FOR INSERT
-TO authenticated
-WITH CHECK (
-    EXISTS (
-        SELECT 1 FROM public.compost_piles
-        WHERE public.compost_piles.id = public.day_readings.pile_id
-        AND public.compost_piles.user_id = auth.uid()
-    )
-);
-
--- ----------------------------------------------------------
--- 4. HARDENED SECURITY DEFINER CREATION PROCEDURE
--- Exclusive transactional procedure for reserving & creating piles.
--- ----------------------------------------------------------
+-- Function: Hardened Security Definer Pile Creation Procedure
 CREATE OR REPLACE FUNCTION public.create_compost_pile_with_reservation(
     p_pile_number INT,
     p_name TEXT,
@@ -185,7 +162,7 @@ BEGIN
     END IF;
 
     IF p_target_days IS NULL OR p_target_days <= 0 THEN
-        RAISE EXCEPTION 'Target duration must be greater than zero days.';
+        p_target_days := 30;
     END IF;
 
     -- 3. Check for existing reservation for this user
@@ -210,7 +187,17 @@ BEGIN
     SET original_pile_id = v_pile_id
     WHERE user_id = v_user_id AND pile_number = p_pile_number;
 
-    -- 7. Return created pile record details as JSONB
+    -- 7. Log audit event
+    INSERT INTO public.audit_logs (user_id, action, target_type, target_id, details)
+    VALUES (
+        v_user_id,
+        'CREATE_COMPOST_PILE',
+        'compost_piles',
+        v_pile_id::TEXT,
+        jsonb_build_object('pile_number', p_pile_number, 'name', p_name, 'category', p_category)
+    );
+
+    -- 8. Return created pile record details as JSONB
     SELECT to_jsonb(p.*) INTO v_result
     FROM public.compost_piles p
     WHERE p.id = v_pile_id;
@@ -219,14 +206,115 @@ BEGIN
 END;
 $$;
 
--- Revoke execution from PUBLIC and anonymous users
 REVOKE EXECUTE ON FUNCTION public.create_compost_pile_with_reservation(INT, TEXT, TEXT, INT) FROM PUBLIC, anon;
-
--- Grant execution exclusively to authenticated users
 GRANT EXECUTE ON FUNCTION public.create_compost_pile_with_reservation(INT, TEXT, TEXT, INT) TO authenticated;
 
 -- ----------------------------------------------------------
--- 5. IDEMPOTENT REALTIME PUBLICATION SETUP
+-- 5. ROW LEVEL SECURITY (RLS) POLICIES
+-- ----------------------------------------------------------
+
+ALTER TABLE public.reserved_pile_numbers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.compost_piles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.day_readings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+
+-- POLICIES: reserved_pile_numbers
+DROP POLICY IF EXISTS "Users view own reservations or Admins view all" ON public.reserved_pile_numbers;
+CREATE POLICY "Users view own reservations or Admins view all"
+ON public.reserved_pile_numbers FOR SELECT
+TO authenticated
+USING (auth.uid() = user_id OR public.is_admin());
+
+-- POLICIES: compost_piles
+-- Direct INSERT blocked! Created via create_compost_pile_with_reservation()
+DROP POLICY IF EXISTS "Users view own piles or Admins view all" ON public.compost_piles;
+CREATE POLICY "Users view own piles or Admins view all"
+ON public.compost_piles FOR SELECT
+TO authenticated
+USING (auth.uid() = user_id OR public.is_admin());
+
+DROP POLICY IF EXISTS "Users update own piles or Admins update all" ON public.compost_piles;
+CREATE POLICY "Users update own piles or Admins update all"
+ON public.compost_piles FOR UPDATE
+TO authenticated
+USING (auth.uid() = user_id OR public.is_admin());
+
+DROP POLICY IF EXISTS "Users delete own piles or Admins delete all" ON public.compost_piles;
+CREATE POLICY "Users delete own piles or Admins delete all"
+ON public.compost_piles FOR DELETE
+TO authenticated
+USING (auth.uid() = user_id OR public.is_admin());
+
+-- POLICIES: day_readings
+DROP POLICY IF EXISTS "Users view own readings or Admins view all" ON public.day_readings;
+CREATE POLICY "Users view own readings or Admins view all"
+ON public.day_readings FOR SELECT
+TO authenticated
+USING (
+    EXISTS (
+        SELECT 1 FROM public.compost_piles
+        WHERE public.compost_piles.id = public.day_readings.pile_id
+        AND (public.compost_piles.user_id = auth.uid() OR public.is_admin())
+    )
+);
+
+DROP POLICY IF EXISTS "Users insert readings for own piles" ON public.day_readings;
+CREATE POLICY "Users insert readings for own piles"
+ON public.day_readings FOR INSERT
+TO authenticated
+WITH CHECK (
+    EXISTS (
+        SELECT 1 FROM public.compost_piles
+        WHERE public.compost_piles.id = public.day_readings.pile_id
+        AND public.compost_piles.user_id = auth.uid()
+    )
+);
+
+-- POLICIES: user_roles
+DROP POLICY IF EXISTS "Users view own role or Admins view all" ON public.user_roles;
+CREATE POLICY "Users view own role or Admins view all"
+ON public.user_roles FOR SELECT
+TO authenticated
+USING (auth.uid() = user_id OR public.is_admin());
+
+DROP POLICY IF EXISTS "Only Admins can modify roles" ON public.user_roles;
+CREATE POLICY "Only Admins can modify roles"
+ON public.user_roles FOR ALL
+TO authenticated
+USING (public.is_admin())
+WITH CHECK (public.is_admin());
+
+-- POLICIES: devices
+DROP POLICY IF EXISTS "Users view devices for own piles or Admins view all" ON public.devices;
+CREATE POLICY "Users view devices for own piles or Admins view all"
+ON public.devices FOR SELECT
+TO authenticated
+USING (
+    pile_id IS NULL OR EXISTS (
+        SELECT 1 FROM public.compost_piles
+        WHERE public.compost_piles.id = public.devices.pile_id
+        AND (public.compost_piles.user_id = auth.uid() OR public.is_admin())
+    )
+);
+
+DROP POLICY IF EXISTS "Only Admins can manage devices" ON public.devices;
+CREATE POLICY "Only Admins can manage devices"
+ON public.devices FOR ALL
+TO authenticated
+USING (public.is_admin())
+WITH CHECK (public.is_admin());
+
+-- POLICIES: audit_logs
+DROP POLICY IF EXISTS "Only Admins can view audit logs" ON public.audit_logs;
+CREATE POLICY "Only Admins can view audit logs"
+ON public.audit_logs FOR SELECT
+TO authenticated
+USING (public.is_admin());
+
+-- ----------------------------------------------------------
+-- 6. REALTIME PUBLICATIONS
 -- ----------------------------------------------------------
 DO $$
 BEGIN
@@ -243,15 +331,11 @@ BEGIN
     ) THEN
         ALTER PUBLICATION supabase_realtime ADD TABLE public.day_readings;
     END IF;
-END $$;
 
--- ==========================================================
--- SEPARATE SAFE RESET SQL SCRIPT (DO NOT RUN AUTOMATICALLY)
--- Execute below ONLY when explicitly resetting test records.
--- Deleting from compost_piles DOES NOT remove reserved_pile_numbers,
--- so previously used numbers remain reserved for each user!
--- ==========================================================
--- DELETE FROM public.day_readings;
--- DELETE FROM public.compost_piles;
--- To also clear number reservations during a full test reset, execute:
--- DELETE FROM public.reserved_pile_numbers;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_publication_tables
+        WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'devices'
+    ) THEN
+        ALTER PUBLICATION supabase_realtime ADD TABLE public.devices;
+    END IF;
+END $$;
