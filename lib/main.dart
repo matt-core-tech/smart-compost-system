@@ -2,12 +2,10 @@ import 'dart:io';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
-import 'package:cross_file/cross_file.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -780,37 +778,54 @@ class _MainNavigationState extends State<MainNavigation> {
     _fetchCompostPilesAndReadings(silent: true);
   }
 
+
   Future<void> _handleGetReadingsClicked(CompostPile pile) async {
     setState(() => _activeReadingPileUuid = pile.id);
-    try {
-      final rows = await Supabase.instance.client
-          .from('day_readings')
-          .select()
-          .eq('pile_id', pile.id)
-          .order('created_at', ascending: true);
 
-      // Refresh the pile list so its latest sensor values and history are rebuilt
-      // from the same database records shown on the detail screen.
+    try {
+      final result = await Supabase.instance.client.rpc(
+        'claim_latest_sensor_reading',
+        params: {
+          'p_pile_id': pile.id,
+        },
+      );
+
+      if (result == null || result['success'] != true) {
+        throw Exception('The database did not confirm the reading.');
+      }
+
       await _fetchCompostPilesAndReadings(silent: true);
+
       if (!mounted) return;
-      final count = (rows as List).length;
+
+      final temperature = result['temperature_c'];
+      final moisture = result['raw_moisture'];
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(count == 0
-              ? 'No readings are stored for ${pile.displayName} yet.'
-              : 'Retrieved $count database reading${count == 1 ? '' : 's'} for ${pile.displayName}.'),
+          content: Text(
+            'New reading saved to ${pile.displayName}: '
+                '$temperature°C, $moisture ADC.',
+          ),
           backgroundColor: const Color(0xFF1B3B2B),
         ),
       );
     } catch (e) {
       if (!mounted) return;
+
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not retrieve readings: $e'), backgroundColor: Colors.red.shade700),
+        SnackBar(
+          content: Text('Could not retrieve sensor reading: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
       );
     } finally {
-      if (mounted) setState(() => _activeReadingPileUuid = null);
+      if (mounted) {
+        setState(() => _activeReadingPileUuid = null);
+      }
     }
   }
+
 
   Future<void> _fetchCompostPilesAndReadings({bool silent = false}) async {
     if (!silent) {
@@ -1432,6 +1447,7 @@ class _PileDetailScreenState extends State<PileDetailScreen> {
 
   Future<void> _fetchReadingsFromSupabase() async {
     if (!mounted) return;
+
     setState(() {
       _isLoadingReadings = true;
       _errorMessage = null;
@@ -1460,12 +1476,69 @@ class _PileDetailScreenState extends State<PileDetailScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Failed to load readings: ${e.toString()}';
+          _errorMessage = 'Failed to load historical readings: ${e.toString()}';
           _isLoadingReadings = false;
         });
       }
     }
   }
+
+  Future<void> _getReadingsFromSensor() async {
+    if (!mounted) return;
+
+    setState(() {
+      _isLoadingReadings = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final result = await Supabase.instance.client.rpc(
+        'claim_latest_sensor_reading',
+        params: {
+          'p_pile_id': widget.pile.id,
+        },
+      );
+
+      if (result == null || result['success'] != true) {
+        throw Exception('The database did not confirm the reading.');
+      }
+
+      // Reload the selected pile's historical readings.
+      await _fetchReadingsFromSupabase();
+
+      // Refresh the parent screen's pile values.
+      await widget.onRefreshNeeded?.call();
+
+      if (!mounted) return;
+
+      final temperature = result['temperature_c'];
+      final moisture = result['raw_moisture'];
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'New reading saved: $temperature°C, $moisture ADC.',
+          ),
+          backgroundColor: const Color(0xFF1B3B2B),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _errorMessage = 'Could not retrieve sensor reading: $e';
+        _isLoadingReadings = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Could not retrieve sensor reading: $e'),
+          backgroundColor: Colors.red.shade700,
+        ),
+      );
+    }
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -1531,7 +1604,7 @@ class _PileDetailScreenState extends State<PileDetailScreen> {
                 _isLoadingReadings ? 'Retrieving Records...' : 'Get Readings from Database',
                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
               ),
-              onPressed: _isLoadingReadings ? null : _fetchReadingsFromSupabase,
+              onPressed: _isLoadingReadings ? null : _getReadingsFromSensor,
             ),
             const SizedBox(height: 20),
 
